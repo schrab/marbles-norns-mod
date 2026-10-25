@@ -107,6 +107,58 @@ function M.gate_flags(previous, current)
   end
 end
 
+-- class HysteresisQuantizer (hysteresis_quantizer.h:31) -- the pre-refactoring
+-- variant the variable-resolution quantizer uses (quantizer.h:115). Unlike
+-- HysteresisQuantizer2 it takes num_steps per call and a fixed default
+-- hysteresis of 0.25.
+M.HysteresisQuantizer = {}
+local HysteresisQuantizer = M.HysteresisQuantizer
+HysteresisQuantizer.__index = HysteresisQuantizer
+
+function HysteresisQuantizer.new()
+  return setmetatable({}, HysteresisQuantizer)
+end
+
+-- void Init() (hysteresis_quantizer.h:37)
+function HysteresisQuantizer:init()
+  self.quantized_value_ = 0
+end
+
+-- inline int Process(float value, int num_steps) (:39) ->
+--   Process(value, num_steps, 0.25f) (:42) ->
+--   Process(0, value, num_steps, hysteresis) (:45). The three C++ overloads
+--   become one Lua method dispatched on argument count.
+function HysteresisQuantizer:process(a, b, c, d)
+  local base, value, num_steps, hysteresis
+  if d ~= nil then
+    base, value, num_steps, hysteresis = a, b, c, d
+  elseif c ~= nil then
+    base, value, num_steps, hysteresis = 0, a, b, c
+  else
+    base, value, num_steps, hysteresis = 0, a, b, 0.25
+  end
+  value = value * (num_steps - 1)
+  value = value + base
+
+  local hysteresis_feedback = value > self.quantized_value_
+      and -hysteresis or hysteresis
+  local q = integral_part(value + hysteresis_feedback + 0.5)
+  if q < 0 then
+    q = 0
+  elseif q > num_steps - 1 then
+    q = num_steps - 1
+  end
+  self.quantized_value_ = q
+  return q
+end
+
+-- template<typename T> const T& Lookup(const T* array, float value,
+-- int num_steps) (hysteresis_quantizer.h:57). Indexes with the raw quantized
+-- value: the array must be 0-based (keys 0..num_steps-1).
+function HysteresisQuantizer:lookup(array, value, num_steps)
+  return array[self:process(value, num_steps)]
+end
+
 -- class HysteresisQuantizer2 (hysteresis_quantizer.h:82). Quantize a float in
 -- [0, 1] to an integer in [0, num_steps[; hysteresis prevents jumps near the
 -- decision boundary. This header revision exposes Init, Process(float),

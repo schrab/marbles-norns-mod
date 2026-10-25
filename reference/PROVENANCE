@@ -1,0 +1,2 @@
+eurorack f4cfa7697095a28d292bff758beb51deb49b5a86 marbles/ tree (logic files only)
+stmlib e3bd7c9cc00e4364166f9905c0509b6ffd0535ec dsp/dsp.h dsp/hysteresis_quantizer.h utils/gate_flags.h utils/ring_buffer.h

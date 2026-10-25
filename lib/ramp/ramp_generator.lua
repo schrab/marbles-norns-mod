@@ -50,6 +50,12 @@
 -- phase_difference_ stays exactly 0. To keep the no-jitter case deterministic
 -- and random-free, the wrap code is skipped entirely when jitter_ == 0; the
 -- observable ramp output is identical.
+--
+-- RNG-consumption note: with jitter > 0 the FastBeta input here comes from
+-- this port's RandomStream (random_stream_:get_float() below); in the firmware
+-- it comes from RandomSequence::NextVector called inside TGenerator's
+-- master-wrap block (t_generator.cc:391-396). TGenerator (Task 8) therefore
+-- ports its own sequence and does not reuse this path.
 
 local stmlib = require('marbles-norns-mod/lib/stmlib')
 local distributions = require('marbles-norns-mod/lib/random/distributions')

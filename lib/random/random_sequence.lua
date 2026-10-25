@@ -35,7 +35,8 @@
 --
 -- Value-affecting float32 casts: the C++ converts between floats and uint32
 -- words at three places, and the float32 rounding involved is visible in the
--- firmware's output (a naive double computation would fork from it):
+-- firmware's output (a naive double computation would fork from it -- see the
+-- NextValue jump-branch comment below for a verified worked example):
 --   * random_sequence.h:130  static_cast<float>(history_[h] * kMaxUint32)
 --   * random_sequence.h:132  static_cast<float>(word) / kMaxUint32
 --   * random_sequence.h:210  static_cast<float>(seed * kMaxUint32)
@@ -263,8 +264,13 @@ function RandomSequence:next_value(deterministic, value)
       -- step_ = static_cast<int>(random_stream_->GetFloat() *
       --     static_cast<float>(length_));
       -- GetFloat() is float32 and the product rounds to float32 before the
-      -- truncation (random_sequence.h:183-184); the double-precision product
-      -- alone would truncate differently near integer boundaries.
+      -- truncation (random_sequence.h:183-184). Verified worked example:
+      -- u = 0x1.aaaaaap-1 (the float32 just below 5/6), length 6 -> the exact
+      -- product 4.9999998807907104 would truncate to 4 in a naive double
+      -- port, but the float32 product rounds to exactly 5.0, so the C++ --
+      -- and this port, via f32 -- yield step 5. This only bites for
+      -- non-power-of-two lengths: a power-of-two multiply (e.g. length 16)
+      -- is exact in float32 and both computations agree.
       local u = f32(self.random_stream_:get_float())
       self.step_ = math.floor(f32(u * self.length_))
     else

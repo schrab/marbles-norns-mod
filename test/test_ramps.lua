@@ -66,6 +66,12 @@ function M.test_slave_ramp_pulse(t)
   -- every master wrap, Init(true, pulse_width, 0.5) schedules a pulse; the
   -- ramp then advances at the master frequency and the gate is high while the
   -- output phase is below the pulse width.
+  -- The first Init after a default Init() runs with pulse_width_ still 0 (the
+  -- bernoulli overload only assigns pulse_width_ once the previous
+  -- must_complete_ was true, slave_ramp.h:79-84; the firmware boot path is the
+  -- same: t_generator.cc:156 default-inits the ramps before the first
+  -- ScheduleOutputPulses) -- i.e. a 1-tick trigger since the sr conversion.
+  -- Assertions therefore start with the second scheduled pulse.
   local s = SlaveRamp.new(); s:init()
   local out = {value = 1.0}
   for i = 1, 400 do
@@ -74,14 +80,38 @@ function M.test_slave_ramp_pulse(t)
       s:init(true, 0.4, 0.5)  -- must_complete, pulse_width, expected_value
     end
     local gate = s:process(1 / 100, out)
-    if phase_in_cycle == 10 then
-      t.assert_true(gate, "gate high early in cycle (i=" .. i .. ")")
-      t.assert_true(out.value > 0 and out.value < 0.5, "ramp in first half mid-pulse (i=" .. i .. ")")
+    if i > 100 then
+      if phase_in_cycle == 10 then
+        t.assert_true(gate, "gate high early in cycle (i=" .. i .. ")")
+        t.assert_true(out.value > 0 and out.value < 0.5, "ramp in first half mid-pulse (i=" .. i .. ")")
+      end
+      if phase_in_cycle == 70 then
+        t.assert_true(not gate, "gate low after pulse width elapsed (i=" .. i .. ")")
+        t.assert_true(out.value >= 0.5, "ramp in second half after pulse (i=" .. i .. ")")
+      end
     end
-    if phase_in_cycle == 70 then
-      t.assert_true(not gate, "gate low after pulse width elapsed (i=" .. i .. ")")
-      t.assert_true(out.value >= 0.5, "ramp in second half after pulse (i=" .. i .. ")")
-    end
+  end
+end
+
+function M.test_slave_ramp_trigger_gate(t)
+  -- pw == 0 turns the gate into a trigger: the C++ caps it at 32 samples
+  -- (1 ms at the firmware's 32000 Hz, slave_ramp.h:116), which converts to
+  -- 1 tick at the port's 1000 Hz. From the default Init state the gate must
+  -- be high on the first tick only -- while the phase is still far below the
+  -- 0.5 crossing -- not hold for 32 ticks (the unconverted constant).
+  local s = SlaveRamp.new(); s:init()
+  local out = {value = 0.0}
+  local gate1 = s:process(1 / 100, out)  -- pulse_length_ == 0: trigger tick
+  t.assert_true(gate1, "pw=0 gate high on the first tick")
+  t.assert_true(out.value <= 0.5, "phase in first half on the trigger tick")
+  local gate2 = s:process(1 / 100, out)
+  t.assert_true(not gate2, "pw=0 gate drops after ~1 tick (not 32)")
+  t.assert_true(out.value <= 0.5, "gate dropped by the cap, not the 0.5 crossing")
+  -- drive past where the unconverted 32-sample window would have ended; the
+  -- phase stays below 0.5 the whole time, so the gate must remain low.
+  for i = 3, 40 do
+    t.assert_true(not s:process(1 / 100, out),
+        "gate stays low after the trigger (i=" .. i .. ")")
   end
 end
 

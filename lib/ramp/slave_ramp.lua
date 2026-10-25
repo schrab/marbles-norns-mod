@@ -141,7 +141,11 @@ function SlaveRamp:process(frequency, ramp_state)
   ramp_state.value = output_phase
   local gate
   if self.pulse_width_ == 0.0 then
-    gate = self.pulse_length_ < 32 and output_phase <= 0.5
+    -- pulse_length_ < 32 caps the pw==0 trigger gate at 32 samples (1 ms at
+    -- the firmware's 32000 Hz; slave_ramp.h:116). Sample-domain constant, so
+    -- at the port's 1000 Hz it becomes 1 -- same conversion as
+    -- kMinimumOnDuration = 1 in ramp_extractor.lua (ramp_extractor.cc:237).
+    gate = self.pulse_length_ < 1 and output_phase <= 0.5
   else
     gate = output_phase < self.pulse_width_
   end

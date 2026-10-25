@@ -49,7 +49,10 @@
 -- kSampleRate samples. :process() returns a lock convenience flag (true once
 -- frequency_ has moved off its 0.0001 reset default), which the C++ does not
 -- expose; norns-side code needs a boolean to decide whether the ramp output
--- is meaningful yet.
+-- is meaningful yet. That 0.0001 default (Reset() in ramp_extractor.cc) is a
+-- cycles-per-sample value deliberately left unscaled by the sr conversion:
+-- the lock threshold (`frequency_ > 0.001`) is calibrated against it and only
+-- holds while it stays unscaled.
 
 local M = {}
 

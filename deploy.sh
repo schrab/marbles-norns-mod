@@ -26,12 +26,14 @@ for f in lib/*.lua lib/*/*.lua data/*.lua test-script/*.lua; do
   sweep_lua "$f" || { echo "syntax error: $f" >&2; exit 1; }
 done
 
-tar czf "$DIR.tgz" --exclude '.git' --exclude 'reference' --exclude 'test' \
+# tarball lives in /tmp: writing it inside the tree makes tar fail with
+# "file changed as we read it" (the archive grows while the tree is scanned)
+tar czf "/tmp/$DIR.tgz" --exclude '.git' --exclude 'reference' --exclude 'test' \
     --exclude '.superpowers' --exclude 'docs' --exclude '*.tgz' .
 ssh "$HOST" "mkdir -p ~/dust/code/$DIR"
-scp -q "$DIR.tgz" "$HOST:/tmp/$DIR.tgz"
+scp -q "/tmp/$DIR.tgz" "$HOST:/tmp/$DIR.tgz"
 ssh "$HOST" "tar xzf /tmp/$DIR.tgz -C ~/dust/code/$DIR && \
   sudo systemctl restart norns-jack norns-sclang norns-main && \
   sleep 3 && systemctl is-active norns-main"
-rm -f "$DIR.tgz"
+rm -f "/tmp/$DIR.tgz"
 echo "deployed to $HOST:~/dust/code/$DIR — enable once via SYSTEM > MODS if new"

@@ -176,6 +176,12 @@ for _ in pairs(loop_length) do
   kNumLoopLengths = kNumLoopLengths + 1
 end
 
+-- Inspection copy for mod-side UI mapping (norns-side addition): mod.lua maps
+-- the mrb_dv_length number param (1..16, the firmware's deja vu length UI)
+-- back onto this table's normalized 0..1 domain. Read-only; the engine
+-- addresses it with the dv_length_quantizer lookup.
+M.loop_length = loop_length
+
 -- bitwise AND for the small flag words this module tests (Lua 5.1)
 local function band(a, b)
   local r, bit_value = 0, 1

@@ -155,7 +155,8 @@ local y_divider_ratios = {
 }
 
 -- int loop_length[] (marbles.cc:196-209), transcribed verbatim. 0-based keys
--- ([0] = 1, then the 75 positional entries on 1..75; 76 entries total).
+-- ([0] = 1, then the 74 positional entries on 1..74; 75 entries total --
+-- sizeof(loop_length)/sizeof(int)).
 local loop_length = {
   [0] = 1,
   2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,

@@ -3,11 +3,12 @@
 -- fake is the interface contract install() must honor), plus one integration
 -- test against a real Engine.
 --
--- Throttle note: the brief prose says the y throttle is "os.clock() based",
--- but its own test fires 1000 emits back-to-back and expects ~30 callbacks --
--- real-time throttling would yield 1. _emit_y therefore advances a 1 ms
--- stream counter per emit (the engine's emit stream is sampled at 1 kHz) and
--- throttles on that; see the module header.
+-- Throttle note: _emit_y throttles on wall time through an injectable clock
+-- (Marbles._y_clock, os.clock by default) with drop-with-coalesce semantics:
+-- emits inside the ~1/30 s window collapse into a pending latest value, and
+-- the first emit after the window elapses flushes it. Tests inject a fake
+-- clock so the window can be advanced deterministically; see the module
+-- header.
 local M = {}
 local api = require('marbles-norns-mod/lib/event_api')
 
@@ -63,11 +64,35 @@ end
 
 function M.test_y_throttle(t)
   local Marbles = api.install(fake_engine())
+  local count, last = 0, nil
+  Marbles.on_y(function(v) count = count + 1; last = v end)
+  -- inject a fake wall clock (seconds) and advance it by one ~33 ms window
+  -- (plus a 1 ns cushion: accumulating 1/30 thirty times lands some gaps a
+  -- float ulp below the window, which would spuriously miss the boundary)
+  -- every ~33 emits: ~1 s of 1 kHz-ish emits -> ~30 events pass
+  local now = 0
+  Marbles._y_clock = function() return now end
+  for i = 1, 1000 do
+    api._emit_y(Marbles, i)
+    if i % 33 == 0 then now = now + 1 / 30 + 1e-9 end
+  end
+  t.assert_true(count >= 29 and count <= 33, "~30 Hz throttle, got " .. count)
+  -- coalesced flush: after the window elapses, the next emit fires the
+  -- pending latest value (the 1000th), not the flush emit's own payload
+  now = now + 1
+  api._emit_y(Marbles, 1001)
+  t.assert_eq(last, 1000, "pending latest flushed after the window")
+end
+
+-- Frozen wall clock: 1000 instant emits collapse to the single leading
+-- event -- the rate cap holds regardless of emit density.
+function M.test_y_throttle_frozen_clock(t)
+  local Marbles = api.install(fake_engine())
   local count = 0
   Marbles.on_y(function() count = count + 1 end)
-  -- simulate 1 s of 1000 Hz ticks -> ~30 y callbacks
+  Marbles._y_clock = function() return 0 end
   for i = 1, 1000 do api._emit_y(Marbles, 0.5) end
-  t.assert_true(count >= 29 and count <= 31, "30 Hz throttle, got " .. count)
+  t.assert_eq(count, 1, "frozen clock caps 1000 emits to 1 event")
 end
 
 -- One failing subscriber must not disturb the others or the dispatch loop.

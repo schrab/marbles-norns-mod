@@ -13,6 +13,7 @@
 --                                         (norns-side convention, 1 ms ticks)
 --   on_x1/x2/x3(fn)                    -- new voltage; fn({raw, volt, note})
 --   on_y(fn)                           -- new Y voltage; fn(volt), throttled
+--                                         to ~30 Hz wall time (coalesced)
 --   get(name)                          -- "t1".."t3" -> bool, "x1".."x3" ->
 --                                         payload table, "x" -> payload
 --                                         array, "y" -> volts, else nil
@@ -37,13 +38,16 @@
 -- "marbles: subscriber error: ..." and dispatch continues, so one bad script
 -- can't kill the engine's metro tick.
 --
--- Y throttle: the on_y bridge routes through _emit_y, which throttles to
--- ~30 Hz. The brief prose says "os.clock() based", but its own test fires
--- 1000 emits back-to-back and expects ~30 callbacks -- real-time throttling
--- would yield 1. _emit_y therefore treats each emit as one millisecond of
--- the engine's emit stream (the engine samples at 1 kHz and emits at most
--- one Y event per tick) and throttles on that stream time; in production the
--- stream counter tracks wall time to within the emit density. Test seam:
+-- Y throttle: the engine fires on_y only when Y's voltage CHANGES (a Y
+-- draw, ~2-64 Hz depending on the divider) -- not once per engine tick; the
+-- 1 kHz tick rate is only the engine's sampling ceiling, not the Y event
+-- rate. The on_y bridge routes through _emit_y, which throttles the fan-out
+-- to ~30 Hz on WALL time (os.clock() by default; injectable as
+-- Marbles._y_clock for tests). Emits inside the ~33 ms window are not lost:
+-- the latest value coalesces into a pending slot and the first emit after
+-- the window elapses flushes it (the window then restarts), so slow draws
+-- pass straight through while fast streams cap at ~1 event per window
+-- without ever dropping the freshest voltage for good. Test seam:
 -- api._emit_y(Marbles, v).
 --
 -- Gate callbacks receive (state, pulse_width) on state CHANGES of the
@@ -53,7 +57,7 @@ local M = {}
 
 local ScaleRecorder = require('marbles-norns-mod/lib/scale_recorder')
 
-local kYWindowMs = 1000 / 30  -- ~30 Hz throttle window, in stream-ms
+local kYWindowS = 1 / 30  -- ~30 Hz throttle window, in wall-clock seconds
 
 local function dispatch(list, ...)
   for _, fn in ipairs(list) do
@@ -65,14 +69,30 @@ local function dispatch(list, ...)
 end
 
 -- Test seam / y bridge: one Y event from the engine stream. Throttles the
--- fan-out to ~30 Hz over the stream's millisecond counter.
+-- fan-out to ~30 Hz on wall time, read from the injectable clock
+-- (Marbles._y_clock, defaulting to os.clock). Emits inside the window
+-- coalesce into _y_pending; the first emit after the window elapses flushes
+-- that pending latest value (the new value then waits for the next window),
+-- so subscribers cap at ~1 event per window but never lose the freshest Y
+-- voltage for good.
 function M._emit_y(Marbles, v)
-  Marbles._y_ms = (Marbles._y_ms or 0) + 1
-  if Marbles._y_ms - (Marbles._y_last or -kYWindowMs) >= kYWindowMs then
-    Marbles._y_last = Marbles._y_ms
+  local clock = Marbles._y_clock or os.clock
+  local now = clock()
+  local last = Marbles._y_last
+  if last == nil or now - last >= kYWindowS then
+    Marbles._y_last = now
+    local pending = Marbles._y_pending
+    Marbles._y_pending = nil
     if Marbles._dispatch_y then
-      Marbles._dispatch_y(v)
+      if pending ~= nil then
+        Marbles._dispatch_y(pending)
+        Marbles._y_pending = v
+      else
+        Marbles._dispatch_y(v)
+      end
     end
+  else
+    Marbles._y_pending = v
   end
 end
 
@@ -103,6 +123,10 @@ function M.install(engine)
   function Marbles.on_x3(fn) add_subscriber(x_subs[3], fn) end
   function Marbles.on_y(fn) add_subscriber(y_subs, fn) end
   Marbles._dispatch_y = function(v) dispatch(y_subs, v) end
+  -- Y throttle state: wall clock (injectable for tests) + throttle slots.
+  Marbles._y_clock = os.clock
+  Marbles._y_last = nil    -- wall time of the last dispatch
+  Marbles._y_pending = nil -- latest coalesced value inside the window
 
   -- bridges (colon-calls: the engine's dual-mode hooks and the test fakes
   -- both take (self, i, fn))

@@ -246,8 +246,8 @@ local function serialize_value(v, indent)
 end
 
 -- save(path, slots): write the slot table {[0..5] = Scale} as Lua source.
--- Degree tables are canonicalized to the dual form before writing (the file
--- itself stores the plain array pair).
+-- Degree tables are canonicalized to the dual form before writing, so the
+-- file stores 4 keys per degree (the [1]/[2] array pair plus .voltage/.weight).
 function M.save(path, slots)
   local canonical = {}
   for k, s in pairs(slots) do

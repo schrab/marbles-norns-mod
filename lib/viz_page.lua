@@ -15,16 +15,17 @@
 --                                      last (test seam)
 --
 -- Layout (128x64):
---   y 1..23   left: t1/t2/t3 gate lanes (6 px, filled block while high);
+--   y 1..23   left: t1/t2/t3 trigger squares (6 px, filled while high);
 --             right: X1..X3 vertical bars, note name under each bar
---   y 30..64  Y out scope (scrolling strip chart: newest at x=127, 1 px per
---             sample, slides left as new Y values arrive; faint +5 V ceiling
---             line, brighter 0 V midline reference)
+--   y 30..64  Y out scope (scrolling strip chart: newest at x=127, 2 samples
+--             per px = 2x compressed time base, 1 px trace, slides left as
+--             new Y values arrive; faint +5 V ceiling line, brighter 0 V
+--             midline reference)
 -- Missing engine: an "enable + load a script" hint instead of everything.
 
 local M = {}
 
-local kHistoryMax = 128
+local kHistoryMax = 256   -- 2 samples per px x 128 px of scope
 local kYMid = 48          -- scope midline (y px)
 local kYPxPerVolt = 3     -- +/-5 V -> +/-15 px inside the 30..64 strip
 local kBarBaseline = 22   -- X bars grow up from here
@@ -81,6 +82,7 @@ function M.new(engine_ref_fn)
     scr.clear()
     scr.level(15)
     scr.font_size(8)
+    scr.line_width(1)
 
     if not engine or not engine.out then
       scr.move(6, 28)
@@ -92,18 +94,18 @@ function M.new(engine_ref_fn)
     end
     local out = engine.out
 
-    -- gate lanes t1..t3: label + 6 px lane, filled while high
+    -- trigger squares t1..t3: label + 6 px square, filled while high
     local lanes = { { "1", out.t1 }, { "2", out.t2 }, { "3", out.t3 } }
     for i, lane in ipairs(lanes) do
       local y = 2 + (i - 1) * 8
       scr.level(9)
       scr.move(1, y + 6)
       scr.text(lane[1])
-      scr.rect(12, y, 50, 6)
+      scr.rect(12, y, 6, 6)
       scr.stroke()
       if lane[2] then
         scr.level(15)
-        scr.rect(12, y, 50, 6)
+        scr.rect(12, y, 6, 6)
         scr.fill()
       end
     end
@@ -145,18 +147,21 @@ function M.new(engine_ref_fn)
     local n = #h
     if n > 1 then
       scr.level(15)
-      -- scrolling strip chart, not a compressing overview: newest sample at
-      -- x=127, one pixel per sample, trace grows leftward from the right
-      -- edge until the ring fills, then slides left as new samples arrive
-      local first = math.max(1, n - 127)
-      for i = first, n do
-        local x = 127 - (n - i)
-        local y = kYMid - h[i] * kYPxPerVolt
-        if y < 34 then y = 34 elseif y > 63 then y = 63 end
-        if i == first then
-          scr.move(x, y)
-        else
-          scr.line(x, y)
+      -- scrolling strip chart, decimated 2:1 (2x compressed time base):
+      -- newest sample at x=127, every 2nd sample drawn, 1 px trace; grows
+      -- leftward from the right edge until the ring fills, then slides left
+      local started = false
+      for px = 0, 127 do
+        local i = n - (127 - px) * 2
+        if i >= 1 then
+          local y = kYMid - h[i] * kYPxPerVolt
+          if y < 34 then y = 34 elseif y > 63 then y = 63 end
+          if not started then
+            scr.move(px, y)
+            started = true
+          else
+            scr.line(px, y)
+          end
         end
       end
       scr.stroke()

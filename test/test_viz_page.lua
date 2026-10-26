@@ -10,7 +10,7 @@ _G.screen = {
   move = function(x, y) draws[#draws + 1] = "move:" .. tostring(x) .. "," .. tostring(y) end,
   line = function(x, y) draws[#draws + 1] = "line:" .. tostring(x) .. "," .. tostring(y) end,
   stroke = function() end,
-  rect = function() draws[#draws + 1] = "rect" end,
+  rect = function(x, y, w, h) draws[#draws + 1] = "rect:" .. tostring(w) .. "x" .. tostring(h) end,
   fill = function() draws[#draws + 1] = "fill" end,
   level = function() end,
   font_face = function() end,
@@ -18,13 +18,14 @@ _G.screen = {
   text = function(s) draws[#draws + 1] = "text:" .. tostring(s) end,
   clear = function() draws = {} end,
   update = function() end,
+  line_width = function() end,
 }
 
 function M.test_y_history_ring(t)
   local page = vp.new(function() return nil end) -- no engine: must not crash
   for i = 1, 300 do page._push_y(i * 0.01) end
-  t.assert_eq(#page._y_history, 128, "ring capped")
-  t.assert_almost_eq(page._y_history[128], 3.0, 0.01, "newest last")
+  t.assert_eq(#page._y_history, 256, "ring capped (2 samples per px x 128)")
+  t.assert_almost_eq(page._y_history[256], 3.0, 0.01, "newest last")
 end
 
 function M.test_nil_engine_safe(t)
@@ -96,7 +97,7 @@ function M.test_y_scope_scrolls_right_aligned(t)
                    reseed_dv = function() end }
   local page = vp.new(function() return engine end)
   page._push_y(5.0) -- +5 V clamps to y=34; must leave the ring entirely
-  for i = 1, 200 do page._push_y(0.0) end
+  for i = 1, 400 do page._push_y(0.0) end
   draws = {}
   page:redraw()
   local joined = table.concat(draws, ";")
@@ -104,6 +105,9 @@ function M.test_y_scope_scrolls_right_aligned(t)
       "scope starts at the oldest retained sample (0 V), right-aligned")
   t.assert_true(joined:find("move:0,34", 1, true) == nil,
       "dropped oldest sample is not compressed into the left edge")
+  t.assert_true(joined:find("rect:50x6", 1, true) == nil
+      and joined:find("rect:6x6", 1, true) ~= nil,
+      "triggers drawn as 6 px squares, not wide lane bars")
 end
 
 return M

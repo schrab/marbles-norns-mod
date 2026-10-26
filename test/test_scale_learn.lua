@@ -56,6 +56,21 @@ function M.test_recorder_wraps_negative_voltage(t)
   t.assert_eq(r:num_notes(), 1, "negative voltage wraps onto C")
 end
 
+function M.test_recorder_folds_over_base_interval(t)
+  local r = Rec.new(); r:init()
+  -- park a degree at 0.0, then feed a note just under 1 V: the
+  -- fabsf((v - base_interval) - av) < tolerance branch (scale_recorder.h:88)
+  -- must fold it onto the 0.0 degree instead of creating a new one
+  for _ = 1, 3 do
+    r:new_note(0.0); r:update_voltage(0.0); r:accept_note()
+  end
+  r:new_note(0.999); r:update_voltage(0.999); r:accept_note()
+  t.assert_eq(r:num_notes(), 1, "no new degree for the near-1 V note")
+  t.assert_eq(r.degrees_[0].count, 4.0, "folded note counted into the 0.0 bucket")
+  t.assert_almost_eq(r.degrees_[0].average_voltage, 0.0, 1.0 / 36.0,
+                     "bucket stays centered on 0 V")
+end
+
 function M.test_recorder_caps_at_max_degrees(t)
   local r = Rec.new(); r:init()
   for i = 0, 19 do -- more distinct notes than kMaxDegrees (16)

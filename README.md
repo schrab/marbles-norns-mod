@@ -126,7 +126,10 @@ documentation.
 All ids are `mrb_`-prefixed (namespace discipline — mods clobbering shared
 param ids is a classic failure mode). Actions push straight into the engine
 setters; norns restores saved values silently, so engine firmware defaults
-hold until a param is touched.
+hold until a param is touched. When the matrix mod is enabled, the `mrb_*`
+params are registered in matrix's post-init phase — scripts must not read
+`params:get("mrb_*")` in their own `init()`; read them from
+`script_post_init` or later, or subscribe via Marbles events.
 
 | id                | name        | type / range                | default | engine mapping |
 |-------------------|-------------|-----------------------------|---------|----------------|
@@ -139,7 +142,7 @@ hold until a param is touched.
 | `mrb_t_pw_mean`   | gate length | control 0..1                | 0.5     | `set_t_pw_mean` |
 | `mrb_t_pw_std`    | length rnd  | control 0..1                | 0       | `set_t_pw_std` |
 | `mrb_dv_amount`   | amount      | control 0..1                | 0.5     | `set_dv_amount` (12 o'clock deadband per marbles.cc) |
-| `mrb_dv_length`   | length      | number 1..16                | 8       | `set_dv_length(norm)` — inverse-mapped through the firmware's `loop_length[]` midpoints; 9/11/13/15 snap to the nearest shorter length the firmware table has |
+| `mrb_dv_length`   | length      | number 1..16                | 5       | `set_dv_length(norm)` — inverse-mapped through the firmware's `loop_length[]` midpoints; 9/11/13/15 snap to the nearest shorter length the firmware table has (display default 5 matches the engine's normalized 0.5 default) |
 | `mrb_dv_t`        | t           | option: off, on, locked     | off     | `set_dv_t` |
 | `mrb_dv_x`        | x           | option: off, on, locked     | off     | `set_dv_x` |
 | `mrb_x_spread`    | spread      | control 0..1                | 0.5     | `set_x_spread` |

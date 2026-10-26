@@ -130,7 +130,9 @@ function ScaleRecorder:extract_scale(scale)
     return false
   end
 
-  -- std::sort by average_voltage (Degree::operator<)
+  -- std::sort by average_voltage (Degree::operator<). Divergence from C++:
+  -- the port sorts a copy of the live degrees where C++ sorts degrees_ in
+  -- place (safer for subsequent AcceptNotes; extraction output is identical).
   local live = {}
   for i = 0, self.num_degrees_ - 1 do
     live[i] = self.degrees_[i]

@@ -181,7 +181,9 @@ local function add_params()
   params:add_group("marbles deja vu", 4)
   params:add_control("mrb_dv_amount", "amount", controlspec.new(0, 1, "lin", 0, 0.5))
   params:set_action("mrb_dv_amount", set_action(function(v) engine:set_dv_amount(v) end))
-  params:add_number("mrb_dv_length", "length", 1, 16, 8)
+  -- display default 5: the engine's normalized 0.5 default resolves through
+  -- loop_length[] to length 5, so the UI must not claim 8 before first touch
+  params:add_number("mrb_dv_length", "length", 1, 16, 5)
   params:set_action("mrb_dv_length", set_action(function(v)
     engine:set_dv_length(dv_length_norm[math.floor(v)] or 0.5)
   end))
@@ -312,6 +314,8 @@ end
 local function detach_midi()
   if not midi_saved then return end
   for dev, old in pairs(midi_saved.handlers) do
+    -- guard: if a script swapped dev.event mid-learn, the pre-learn original
+    -- is deliberately NOT restored (clobbering the newer handler would be worse)
     if dev.event == midi_learn_event then
       dev.event = old
     end

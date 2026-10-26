@@ -161,9 +161,23 @@ function M.new(engine_ref_fn)
     scr.update()
   end
 
-  -- required by _menu.set_page (init()/deinit() dot-dispatched on enter/exit)
-  page.init = function() end
-  page.deinit = function() end
+  -- required by _menu.set_page (init()/deinit() dot-dispatched on enter/exit).
+  -- _menu.set_page draws the page exactly once; periodic refresh comes from
+  -- each live page arming the shared _menu.timer (metro[32]) — the home,
+  -- params, wifi and update pages all follow this exact pattern.
+  page.init = function()
+    if _menu and _menu.timer then
+      _menu.timer.time = 0.05 -- 20 fps: gate pulses read crisply
+      _menu.timer.count = -1
+      _menu.timer.event = function() _menu.redraw() end
+      _menu.timer:start()
+    end
+  end
+  page.deinit = function()
+    if _menu and _menu.timer then
+      _menu.timer:stop()
+    end
+  end
 
   return page
 end

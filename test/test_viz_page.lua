@@ -70,4 +70,21 @@ function M.test_redraw_consumes_engine_out(t)
   t.assert_true(#draws > 5, "bars/lanes actually drawn (" .. #draws .. ")")
 end
 
+function M.test_refresh_timer_lifecycle(t)
+  local saved_menu = _G._menu
+  local started, stopped = 0, 0
+  _G._menu = { timer = {
+    start = function(self) started = started + 1 end,
+    stop = function(self) stopped = stopped + 1 end,
+  } }
+  local page = vp.new(function() return nil end)
+  page.init()
+  t.assert_eq(started, 1, "init arms the refresh timer")
+  t.assert_eq(_G._menu.timer.time, 0.05, "20 fps refresh interval")
+  t.assert_eq(_G._menu.timer.count, -1, "endless count")
+  page.deinit()
+  t.assert_eq(stopped, 1, "deinit stops the timer")
+  _G._menu = saved_menu
+end
+
 return M

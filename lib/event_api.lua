@@ -1,4 +1,8 @@
--- Marbles event API for norns: the global `Marbles` table scripts talk to.
+-- Marbles event API for norns. Norns-side module (no verbatim firmware
+-- counterpart -- the firmware drives DACs/gates directly from Process());
+-- wired against the engine's event registries (lib/engine.lua, which carries
+-- the upstream MIT header for the ported Process() wiring).
+--
 -- install(engine) wires thin subscription bridges onto the engine's event
 -- registries (lib/engine.lua) and returns the Marbles table (mod.lua assigns
 -- it as the global in Task 15).

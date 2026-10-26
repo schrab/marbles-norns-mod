@@ -24,8 +24,22 @@ _G.screen = {
 function M.test_y_history_ring(t)
   local page = vp.new(function() return nil end) -- no engine: must not crash
   for i = 1, 300 do page._push_y(i * 0.01) end
-  t.assert_eq(#page._y_history, 256, "ring capped (2 samples per px x 128)")
-  t.assert_almost_eq(page._y_history[256], 3.0, 0.01, "newest last")
+  t.assert_eq(#page._y_history, 128, "ring capped (1 sample per 20 Hz frame)")
+  t.assert_almost_eq(page._y_history[128], 3.0, 0.01, "newest last")
+end
+
+function M.test_redraw_pushes_current_y(t)
+  local engine = { out = { t1 = false, t2 = false, t3 = false,
+                          x = { [1] = { raw = 0, volt = 0, note = nil },
+                                [2] = { raw = 0, volt = 0, note = nil },
+                                [3] = { raw = 0, volt = 0, note = nil } },
+                          y_volt = 2.0 },
+                   reseed_dv = function() end }
+  local page = vp.new(function() return engine end)
+  page:redraw()
+  page:redraw()
+  t.assert_eq(#page._y_history, 2, "one scope sample per redraw frame")
+  t.assert_almost_eq(page._y_history[2], 2.0, 1e-9, "pushed the current y_volt")
 end
 
 function M.test_nil_engine_safe(t)

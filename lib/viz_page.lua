@@ -17,15 +17,16 @@
 -- Layout (128x64):
 --   y 1..23   left: t1/t2/t3 trigger squares (6 px, filled while high);
 --             right: X1..X3 vertical bars, note name under each bar
---   y 30..64  Y out scope (scrolling strip chart: newest at x=127, 2 samples
---             per px = 2x compressed time base, 1 px trace, slides left as
---             new Y values arrive; faint +5 V ceiling line, brighter 0 V
---             midline reference)
+--   y 30..64  Y out scope (scrolling strip chart on a fixed time base: the
+--             CURRENT y_volt is pushed once per redraw frame (~20 Hz), so the
+--             trace scrolls at a constant ~6.4 s per full width regardless of
+--             how slow the Y generator draws; 1 px trace; faint +5 V ceiling
+--             line, brighter 0 V midline reference)
 -- Missing engine: an "enable + load a script" hint instead of everything.
 
 local M = {}
 
-local kHistoryMax = 256   -- 2 samples per px x 128 px of scope
+local kHistoryMax = 128   -- 1 sample per redraw frame (20 Hz) = ~6.4 s of scope
 local kYMid = 48          -- scope midline (y px)
 local kYPxPerVolt = 3     -- +/-5 V -> +/-15 px inside the 30..64 strip
 local kBarBaseline = 22   -- X bars grow up from here
@@ -94,6 +95,10 @@ function M.new(engine_ref_fn)
     end
     local out = engine.out
 
+    -- scope feed: sample the CURRENT y_volt once per frame — a time-based
+    -- strip chart, not an event plot (Y events can be seconds apart)
+    page._push_y(out.y_volt or 0)
+
     -- trigger squares t1..t3: label + 6 px square, filled while high
     local lanes = { { "1", out.t1 }, { "2", out.t2 }, { "3", out.t3 } }
     for i, lane in ipairs(lanes) do
@@ -147,21 +152,17 @@ function M.new(engine_ref_fn)
     local n = #h
     if n > 1 then
       scr.level(15)
-      -- scrolling strip chart, decimated 2:1 (2x compressed time base):
-      -- newest sample at x=127, every 2nd sample drawn, 1 px trace; grows
-      -- leftward from the right edge until the ring fills, then slides left
-      local started = false
-      for px = 0, 127 do
-        local i = n - (127 - px) * 2
-        if i >= 1 then
-          local y = kYMid - h[i] * kYPxPerVolt
-          if y < 34 then y = 34 elseif y > 63 then y = 63 end
-          if not started then
-            scr.move(px, y)
-            started = true
-          else
-            scr.line(px, y)
-          end
+      -- scrolling strip chart, 1 px per frame sample (newest at x=127);
+      -- grows leftward from the right edge until the ring fills
+      local first = math.max(1, n - 127)
+      for i = first, n do
+        local x = 127 - (n - i)
+        local y = kYMid - h[i] * kYPxPerVolt
+        if y < 34 then y = 34 elseif y > 63 then y = 63 end
+        if i == first then
+          scr.move(x, y)
+        else
+          scr.line(x, y)
         end
       end
       scr.stroke()
@@ -175,6 +176,7 @@ function M.new(engine_ref_fn)
   -- each live page arming the shared _menu.timer (metro[32]) — the home,
   -- params, wifi and update pages all follow this exact pattern.
   page.init = function()
+    page._y_history = {} -- fresh scope on page entry
     if _menu and _menu.timer then
       _menu.timer.time = 0.05 -- 20 fps: gate pulses read crisply
       _menu.timer.count = -1

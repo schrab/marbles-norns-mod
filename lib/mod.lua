@@ -387,10 +387,10 @@ local pre_init = function()
     api_learn_stop()
   end
 
-  -- menu viz page (Task 17): feeds from engine.out + the throttled on_y
+  -- menu viz page (Task 17): the scope self-feeds from engine.out.y_volt on
+  -- each redraw frame (fixed time base); on_y stays event-driven for scripts
   local viz_page = require('marbles-norns-mod/lib/viz_page')
   viz = viz_page.new(function() return engine end)
-  Marbles.on_y(function(volt) viz._push_y(volt) end)
   if mod.menu and mod.menu.register then
     mod.menu.register("marbles-norns-mod", viz)
   end

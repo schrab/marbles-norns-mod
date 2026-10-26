@@ -32,6 +32,25 @@ function init()
       clock.internal.start()
       print("marbles: internal clock started at " .. clock.get_tempo() .. " bpm")
     end)
+    -- one-shot diagnostics: dump the x_steps chain (param -> engine -> channel)
+    clock.run(function()
+      clock.sleep(2)
+      local ok, err = pcall(function()
+        local e = Marbles.engine
+        print("marbles-diag params:get(mrb_x_steps)=" ..
+            tostring(params:get("mrb_x_steps")))
+        print("marbles-diag engine.params_.x_steps=" ..
+            tostring(e.params_ and e.params_.x_steps))
+        local xy = e.xy_generator
+        for i = 0, 2 do
+          local ch = xy.output_channel_[i]
+          print("marbles-diag ch" .. i .. " steps_=" .. tostring(ch.steps_) ..
+              " scale_index_=" .. tostring(ch.scale_index_) ..
+              " n_quantizers=" .. tostring(#ch.quantizer_))
+        end
+      end)
+      if not ok then print("marbles-diag failed: " .. tostring(err)) end
+    end)
   else
     print("marbles mod not enabled (SYSTEM > MODS)")
   end

@@ -147,96 +147,116 @@ local function set_action(fn)
 end
 
 local function add_params()
+  -- one source of truth for the param -> engine mapping: set_actions push
+  -- live knob turns, the deferred sync (below) pushes pset-restored values
+  local apply = { }
+
   params:add_separator("marbles")
 
   params:add_group("marbles clock", 4)
   params:add_option("mrb_clk_src", "source", { "norns", "external" }, 1)
-  params:set_action("mrb_clk_src", set_action(function(v)
+  apply["mrb_clk_src"] = function(v)
     local src = (v == 1) and "norns" or "external"
     engine:set_clock_source(src)
     if src == "norns" then engine:start() end
-  end))
+  end
   -- rate: normalized knob; the engine applies the firmware's T_RATE pot
   -- curve (120*knob - 60 semitones), so 0.5 = x1 of the norns tempo
   params:add_control("mrb_t_rate", "rate", controlspec.new(0, 1, "lin", 0, 0.5))
-  params:set_action("mrb_t_rate", set_action(function(v) engine:set_t_rate(v) end))
+  apply["mrb_t_rate"] = function(v) engine:set_t_rate(v) end
   params:add_option("mrb_t_range", "range", { "\195\1834", "\195\1511", "\195\1514" }, 2)
-  params:set_action("mrb_t_range", set_action(function(v) engine:set_t_range(v) end))
+  apply["mrb_t_range"] = function(v) engine:set_t_range(v) end
   params:add_control("mrb_t_jitter", "jitter", controlspec.new(0, 1, "lin", 0, 0))
-  params:set_action("mrb_t_jitter", set_action(function(v) engine:set_t_jitter(v) end))
+  apply["mrb_t_jitter"] = function(v) engine:set_t_jitter(v) end
 
   params:add_group("marbles t", 4)
   params:add_option("mrb_t_model", "model", {
     "coin toss", "clusters", "drums", "indep. coin", "divider", "3 states",
     "markov (hidden)",
   }, 1)
-  params:set_action("mrb_t_model", set_action(function(v) engine:set_t_model(v) end))
+  apply["mrb_t_model"] = function(v) engine:set_t_model(v) end
   params:add_control("mrb_t_bias", "bias", controlspec.new(0, 1, "lin", 0, 0.5))
-  params:set_action("mrb_t_bias", set_action(function(v) engine:set_t_bias(v) end))
+  apply["mrb_t_bias"] = function(v) engine:set_t_bias(v) end
   params:add_control("mrb_t_pw_mean", "gate length", controlspec.new(0, 1, "lin", 0, 0.5))
-  params:set_action("mrb_t_pw_mean", set_action(function(v) engine:set_t_pw_mean(v) end))
+  apply["mrb_t_pw_mean"] = function(v) engine:set_t_pw_mean(v) end
   params:add_control("mrb_t_pw_std", "length rnd", controlspec.new(0, 1, "lin", 0, 0))
-  params:set_action("mrb_t_pw_std", set_action(function(v) engine:set_t_pw_std(v) end))
+  apply["mrb_t_pw_std"] = function(v) engine:set_t_pw_std(v) end
 
   params:add_group("marbles deja vu", 4)
   params:add_control("mrb_dv_amount", "amount", controlspec.new(0, 1, "lin", 0, 0.5))
-  params:set_action("mrb_dv_amount", set_action(function(v) engine:set_dv_amount(v) end))
+  apply["mrb_dv_amount"] = function(v) engine:set_dv_amount(v) end
   -- display default 5: the engine's normalized 0.5 default resolves through
   -- loop_length[] to length 5, so the UI must not claim 8 before first touch
   params:add_number("mrb_dv_length", "length", 1, 16, 5)
-  params:set_action("mrb_dv_length", set_action(function(v)
+  apply["mrb_dv_length"] = function(v)
     engine:set_dv_length(dv_length_norm[math.floor(v)] or 0.5)
-  end))
+  end
   -- defaults 1 ("off"): the firmware's settings.cc defaults both deja vu
   -- switches to OFF; engine defaults must match until the user touches them
   params:add_option("mrb_dv_t", "t", { "off", "on", "locked" }, 1)
-  params:set_action("mrb_dv_t", set_action(function(v) engine:set_dv_t(v) end))
+  apply["mrb_dv_t"] = function(v) engine:set_dv_t(v) end
   params:add_option("mrb_dv_x", "x", { "off", "on", "locked" }, 1)
-  params:set_action("mrb_dv_x", set_action(function(v) engine:set_dv_x(v) end))
+  apply["mrb_dv_x"] = function(v) engine:set_dv_x(v) end
 
   params:add_group("marbles x", 7)
   params:add_control("mrb_x_spread", "spread", controlspec.new(0, 1, "lin", 0, 0.5))
-  params:set_action("mrb_x_spread", set_action(function(v) engine:set_x_spread(v) end))
+  apply["mrb_x_spread"] = function(v) engine:set_x_spread(v) end
   params:add_control("mrb_x_bias", "bias", controlspec.new(0, 1, "lin", 0, 0.5))
-  params:set_action("mrb_x_bias", set_action(function(v) engine:set_x_bias(v) end))
+  apply["mrb_x_bias"] = function(v) engine:set_x_bias(v) end
   params:add_control("mrb_x_steps", "steps", controlspec.new(0, 1, "lin", 0, 0.5))
-  params:set_action("mrb_x_steps", set_action(function(v) engine:set_x_steps(v) end))
+  apply["mrb_x_steps"] = function(v) engine:set_x_steps(v) end
   params:add_option("mrb_x_range", "range", { "0-2V", "0-5V", "\194\1775V" }, 3)
-  params:set_action("mrb_x_range", set_action(function(v) engine:set_x_range(v) end))
+  apply["mrb_x_range"] = function(v) engine:set_x_range(v) end
   params:add_option("mrb_x_mode", "diversity", { "identical", "bump", "tilt" }, 1)
-  params:set_action("mrb_x_mode", set_action(function(v) engine:set_x_mode(v) end))
+  apply["mrb_x_mode"] = function(v) engine:set_x_mode(v) end
   params:add_binary("mrb_x_register", "register", "toggle", 0)
-  params:set_action("mrb_x_register", set_action(function(v)
-    engine:set_x_register(v > 0)
-  end))
+  apply["mrb_x_register"] = function(v) engine:set_x_register(v > 0) end
   -- scale slot: 1-based for the UI, the engine wants the 0-based slot
   params:add_number("mrb_x_scale", "scale", 1, 6, 1)
-  params:set_action("mrb_x_scale", set_action(function(v)
-    engine:set_x_scale_slot(v - 1)
-  end))
+  apply["mrb_x_scale"] = function(v) engine:set_x_scale_slot(v - 1) end
 
   params:add_group("marbles x clock", 1)
   params:add_option("mrb_x_clk", "source", { "t", "t1", "t2", "t3", "external" }, 1)
-  params:set_action("mrb_x_clk", set_action(function(v)
+  apply["mrb_x_clk"] = function(v)
     engine:set_x_clock_source(({ "t", "t1", "t2", "t3", "external" })[v])
-  end))
+  end
 
   params:add_group("marbles y", 5)
   params:add_control("mrb_y_spread", "spread", controlspec.new(0, 1, "lin", 0, 0.5))
-  params:set_action("mrb_y_spread", set_action(function(v) engine:set_y_spread(v) end))
+  apply["mrb_y_spread"] = function(v) engine:set_y_spread(v) end
   params:add_control("mrb_y_bias", "bias", controlspec.new(0, 1, "lin", 0, 0.5))
-  params:set_action("mrb_y_bias", set_action(function(v) engine:set_y_bias(v) end))
+  apply["mrb_y_bias"] = function(v) engine:set_y_bias(v) end
   params:add_control("mrb_y_steps", "steps", controlspec.new(0, 1, "lin", 0, 0))
-  params:set_action("mrb_y_steps", set_action(function(v) engine:set_y_steps(v) end))
+  apply["mrb_y_steps"] = function(v) engine:set_y_steps(v) end
   params:add_option("mrb_y_range", "range", { "0-2V", "0-5V", "\194\1775V" }, 3)
-  params:set_action("mrb_y_range", set_action(function(v) engine:set_y_range(v) end))
+  apply["mrb_y_range"] = function(v) engine:set_y_range(v) end
   -- y_divider_ratios (marbles.cc:181-194): 12 entries, default byte 128 maps
   -- to option 7 = 1/8 (NOT 5/1/16 -- the engine header is authoritative)
   params:add_option("mrb_y_divider", "rate", {
     "1/64", "1/48", "1/32", "1/24", "1/16", "1/12",
     "1/8", "1/6", "1/4", "1/3", "1/2", "1/1",
   }, 7)
-  params:set_action("mrb_y_divider", set_action(function(v) engine:set_y_divider(v) end))
+  apply["mrb_y_divider"] = function(v) engine:set_y_divider(v) end
+
+  for id, fn in pairs(apply) do
+    params:set_action(id, set_action(fn))
+  end
+
+  -- matrix re-reads the pset silently after post-init ("~ matrix one last
+  -- param read" -> params:read(nil, true)); silent restore does NOT bang
+  -- param actions, so restored values would never reach the engine through
+  -- set_action (toolkit polls params:get every tick instead). Push every
+  -- current param value through the same mapping once that read has settled.
+  if clock and clock.run then
+    clock.run(function()
+      clock.sleep(0.25)
+      if engine then
+        for id, fn in pairs(apply) do
+          fn(params:get(id))
+        end
+      end
+    end)
+  end
 end
 
 -- ---------------------------------------------------------------------------

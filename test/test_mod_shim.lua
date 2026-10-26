@@ -16,6 +16,9 @@ local function rec(...)
   table.insert(added, { ... })
 end
 
+-- param values the shim's get() returns (id-keyed); tests set these BEFORE
+-- pre_init to simulate silently-restored pset values
+local param_values = {}
 _G.params = {
   -- colon-call signatures (norns params methods take self)
   add_separator = function(self, id) rec("sep", id) end,
@@ -25,9 +28,16 @@ _G.params = {
   add_number = function(self, id, name, min, max, default) rec("number", id) end,
   add_binary = function(self, id, name, typ, default) rec("binary", id) end,
   set_action = function(self, id, fn) end,
-  set = function(self) end, get = function(self) return 0 end,
+  set = function(self, id, v) param_values[id] = v end,
+  get = function(self, id) return param_values[id] or 0 end,
   lookup_param = function(self) return {} end,
   show = function(self) end, hide = function(self) end,
+}
+-- clock shim with immediate run: mod.lua's deferred param->engine sync runs
+-- synchronously here, so tests can set param_values and observe the push
+_G.clock = {
+  run = function(f, ...) return f(...) end,
+  sleep = function() end,
 }
 -- mod.lua's add_params uses controlspec.new(min, max, warp, step, default);
 -- the fake just records that it was handed something spec-shaped.
@@ -58,6 +68,21 @@ package.loaded['core/mods'] = _G.mod
 do
   local ourmod = require('marbles-norns-mod/lib/mod')
   M._mod = ourmod
+  -- simulate a silently-restored pset (matrix re-reads with actions muted):
+  -- defaults for the enum ids, then an off-default steps the sync must push
+  param_values["mrb_clk_src"] = 1
+  param_values["mrb_t_range"] = 2
+  param_values["mrb_t_model"] = 1
+  param_values["mrb_dv_length"] = 5
+  param_values["mrb_dv_t"] = 1
+  param_values["mrb_dv_x"] = 1
+  param_values["mrb_x_range"] = 3
+  param_values["mrb_x_mode"] = 1
+  param_values["mrb_x_scale"] = 3
+  param_values["mrb_x_clk"] = 1
+  param_values["mrb_y_range"] = 3
+  param_values["mrb_y_divider"] = 7
+  param_values["mrb_x_steps"] = 0.9
   if not _G.hook_script_pre_init then
     error("mod.lua did not register script_pre_init")
   end
@@ -116,6 +141,15 @@ function M.test_cleanup_uninstalls(t)
   _G.hook_script_pre_init()
   if _G.matrix_post_init then _G.matrix_post_init() end
   t.assert_true(_G.Marbles ~= nil, "pre_init after cleanup re-installs")
+end
+
+function M.test_sync_pushes_restored_values_to_engine(t)
+  -- the body-level block set mrb_x_steps=0.9 / mrb_x_scale=3 before pre_init;
+  -- the deferred sync (immediate under the shim clock) must have pushed them
+  local engine = M._mod.engine()
+  t.assert_almost_eq(engine.params_.x_steps, 0.9, 1e-9,
+      "restored steps reached the engine (silent pset read skips actions)")
+  t.assert_eq(engine.state_.x_scale, 2, "scale slot 3 -> 0-based 2")
 end
 
 return M

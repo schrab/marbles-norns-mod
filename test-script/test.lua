@@ -26,6 +26,12 @@ function init()
     Marbles.on_y(function(v) show("y", v) end)
     print("marbles: subscribed. start clock: clock.internal.start() " ..
         "or tap Marbles.clock_pulse()")
+    -- hands-free verification: start the internal clock shortly after load
+    clock.run(function()
+      clock.sleep(1)
+      clock.internal.start()
+      print("marbles: internal clock started at " .. clock.get_tempo() .. " bpm")
+    end)
   else
     print("marbles mod not enabled (SYSTEM > MODS)")
   end

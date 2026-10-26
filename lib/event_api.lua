@@ -42,8 +42,10 @@
 -- draw, ~2-64 Hz depending on the divider) -- not once per engine tick; the
 -- 1 kHz tick rate is only the engine's sampling ceiling, not the Y event
 -- rate. The on_y bridge routes through _emit_y, which throttles the fan-out
--- to ~30 Hz on WALL time (os.clock() by default; injectable as
--- Marbles._y_clock for tests). Emits inside the ~33 ms window are not lost:
+-- to ~30 Hz on WALL time (os.clock() by default; mod.lua overrides it with
+-- util.time in pre_init -- os.clock() is CPU time and stalls while only the
+-- engine's metro runs; injectable as Marbles._y_clock for tests). Emits
+-- inside the ~33 ms window are not lost:
 -- the latest value coalesces into a pending slot and the first emit after
 -- the window elapses flushes it (the window then restarts), so slow draws
 -- pass straight through while fast streams cap at ~1 event per window
@@ -70,7 +72,8 @@ end
 
 -- Test seam / y bridge: one Y event from the engine stream. Throttles the
 -- fan-out to ~30 Hz on wall time, read from the injectable clock
--- (Marbles._y_clock, defaulting to os.clock). Emits inside the window
+-- (Marbles._y_clock, defaulting to os.clock; mod.lua overrides it with
+-- util.time on the device -- see the header note). Emits inside the window
 -- coalesce into _y_pending; the first emit after the window elapses flushes
 -- that pending latest value (the new value then waits for the next window),
 -- so subscribers cap at ~1 event per window but never lose the freshest Y

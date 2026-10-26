@@ -322,6 +322,12 @@ function RampExtractor:process(ratio, always_ramp_to_maximum, reset_ref,
         local down_tolerance = (0.98 - 2.0 * frequency) * self.frequency_
         no_glide = no_glide or self.target_frequency_ > up_tolerance or
             self.target_frequency_ < down_tolerance
+        -- sr-dependent constant: the C++ 0.00001 coefficient is per-32 kHz
+        -- sample and multiplies the sample count (period), so the product is
+        -- 32x smaller at the port's 1 kHz than at the firmware's 32 kHz.
+        -- Audio-rate inputs exceed the port's 1 ms timing resolution anyway
+        -- (audio_rate_period_ was sr-converted; this constant was not) --
+        -- accepted divergence, do not "fix" by rescaling.
         self.lp_coefficient_ = no_glide and 1.0 or
             math.min(period * 0.00001, 0.1)
       else

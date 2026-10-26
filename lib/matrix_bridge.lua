@@ -1,5 +1,5 @@
 -- Marbles -> norns mod matrix bridge (norns-side module, no firmware
--- counterpart). Requires the matrix mod (github.com/andr-04/norns-matrix or
+-- counterpart). Requires the matrix mod (github.com/sixolet/matrix or
 -- equivalent, `require 'matrix/lib/matrix'`); lib/mod.lua only calls
 -- install() when that require succeeds.
 --

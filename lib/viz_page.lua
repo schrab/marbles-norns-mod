@@ -17,7 +17,8 @@
 -- Layout (128x64):
 --   y 1..23   left: t1/t2/t3 gate lanes (6 px, filled block while high);
 --             right: X1..X3 vertical bars, note name under each bar
---   y 30..64  Y out scope (voltages from _push_y, +/-5 V full strip)
+--   y 30..64  Y out scope (voltages from _push_y, +/-5 V full strip;
+--             faint +5 V ceiling line, brighter 0 V midline reference)
 -- Missing engine: an "enable + load a script" hint instead of everything.
 
 local M = {}
@@ -128,10 +129,15 @@ function M.new(engine_ref_fn)
       scr.text(note_name(payload and payload.note))
     end
 
-    -- Y scope strip
+    -- Y scope strip reference lines: the +5 V ceiling (faint) and the 0 V
+    -- midline (kYMid) as the zero reference (brighter of the two)
+    scr.level(3)
+    scr.move(0, kYMid - 5 * kYPxPerVolt)
+    scr.line(127, kYMid - 5 * kYPxPerVolt)
+    scr.stroke()
     scr.level(6)
-    scr.move(0, 33)
-    scr.line(127, 33)
+    scr.move(0, kYMid)
+    scr.line(127, kYMid)
     scr.stroke()
     scr.level(9)
     scr.move(1, 44)

@@ -39,9 +39,12 @@
 --                                                  -- norns metro seam
 --     entropy = fn -> uint32,                  -- RNG seed source
 --   })
--- The metro seam contract: start() is called once with interval 0.001 s and a
--- no-argument callback; the host must invoke cb every interval (cb calls
--- Engine:tick(1)). stop() cancels it.
+-- The metro seam contract: start(interval_seconds, cb) / stop(); the host
+-- must invoke cb every interval. The engine arms it with two callbacks over
+-- its life: at 0.001 s the tick callback (cb calls Engine:tick(1)) and, after
+-- an idle auto-stop, at kWatchdogIntervalS the transport watchdog (cb only
+-- watches clock.running() and revives the tick). stop() cancels it (user
+-- stop only; see Engine:stop).
 --
 -- Clocks:
 --   * "norns" (T section, default): TGenerator's internal branch free-runs,
@@ -54,8 +57,8 @@
 --     semitones, so knob center = x1 of the norns tempo; T_BIAS: 1.05*knob -
 --     0.025); all other setters take final parameter values.
 --   * "external": TGenerator's external branch; Engine:clock_pulse() injects
---     a single-tick GATE_FLAG_RISING edge (a 1 ms synthesized gate pulse) on
---     the T clock input.
+--     a 1 ms synthesized gate pulse (one tick RISING|HIGH, the next tick
+--     FALLING) on the T clock input.
 --   The XY section clock source is independent (marbles.cc:262-274): the
 --   firmware's self-patching detector becomes an explicit choice --
 --   set_x_clock_source("t") (default, CLOCK_SOURCE_INTERNAL_T1_T2_T3),
@@ -95,9 +98,11 @@
 --   * reseed() (new entropy -> re-initialized generators) and reseed_dv()
 --     (reset the T/X/Y random sequences so a deja vu loop re-captures);
 --   * metro auto-stop after ~2 s idle (no master wrap and no external pulse
---     while the norns transport is stopped) and auto-restart on
---     clock_pulse()/x_clock_pulse(); a user :stop() suppresses auto-restart
---     until the next :start().
+--     while the norns transport is stopped): the metro is re-armed at a slow
+--     transport watchdog (kWatchdogIntervalS) instead of being dropped, so a
+--     later clock.internal.start() is noticed and the 1 ms tick revives;
+--     clock_pulse()/x_clock_pulse() also auto-restart; a user :stop() is a
+--     full stop and suppresses both until the next :start().
 --
 -- Corrections vs the plan/brief prose (C++ wins):
 --   * y divider default: state.y_divider = 128 (settings.cc:197) maps to
@@ -132,6 +137,9 @@ local M = {}
 local kSampleRate = 1000     -- port tick rate (1 ms ticks; sr passed to the generators)
 local kGateDelay = 2         -- const int kGateDelay (marbles.cc:64)
 local kIdleStopTicks = 2000  -- ~2 s idle window for the metro auto-stop
+local kWatchdogIntervalS = 0.050 -- idle-stop re-arms the metro at this slow
+                                 -- interval; the callback only watches the
+                                 -- transport (see Engine:watchdog_)
 
 -- enum DejaVuState (settings.h:61-65), 1-based in Lua.
 M.DejaVu = { OFF = 1, ON = 2, LOCKED = 3 }
@@ -400,6 +408,8 @@ function M.new(cfg)
   self.user_stopped_ = false
   self.t_pulse_pending_ = false
   self.x_pulse_pending_ = false
+  self.t_gate_level_ = false  -- synthesized t-clock input level (one tick
+  self.x_gate_level_ = false  -- high per pulse; see synth_pulse_flags)
   self.last_bpm_ = nil
 
   self.t_generator = TGenModule.new()
@@ -513,6 +523,18 @@ end
 -- Clock / transport
 -- ---------------------------------------------------------------------------
 
+-- Synthesized external clock inputs (clock_pulse()/x_clock_pulse()): a
+-- pending pulse raises the input's gate level for exactly one tick;
+-- stmlib.gate_flags derives the edge flags from the previous level, so the
+-- tick after a pulse emits GATE_FLAG_FALLING -- the release edge that
+-- ramp_extractor's pulse-width-based period predictor consumes
+-- (ramp_extractor.cc:291; dead code while pulses emitted a bare
+-- RISING|HIGH with no release). Exposed for tests (test_engine.lua).
+function M.synth_pulse_flags(prev_level, pending)
+  local level = pending and true or false
+  return stmlib.gate_flags(prev_level, level), level
+end
+
 function Engine:clock_pulse()
   self.t_pulse_pending_ = true
   self:activity_()
@@ -542,10 +564,10 @@ end
 
 function Engine:stop()
   self.user_stopped_ = true
-  if self.running_ then
-    self.running_ = false
-    self.metro.stop()
-  end
+  self.running_ = false
+  -- full stop: also cancels an idle-watchdog re-arm (running_ false does not
+  -- mean the metro is stopped anymore)
+  self.metro.stop()
 end
 
 function Engine:is_running()
@@ -589,20 +611,23 @@ function Engine:tick_one_()
 
   local prev_master = self.ramps.master.value
 
-  -- GateFlags for this sample: a pending pulse becomes a single-tick
-  -- RISING|HIGH edge on the synthesized clock input.
-  local t_flags = GF.LOW
+  -- GateFlags for this sample on the synthesized clock inputs: a pending
+  -- pulse raises the gate level for one tick; stmlib.gate_flags derives the
+  -- edges, so the tick after a pulse emits FALLING (see synth_pulse_flags).
+  local t_flags, t_level = M.synth_pulse_flags(self.t_gate_level_,
+      self.t_pulse_pending_)
   if self.t_pulse_pending_ then
     self.t_pulse_pending_ = false
-    t_flags = GF.RISING + GF.HIGH
     activity = true
   end
-  local xy_flags = GF.LOW
+  self.t_gate_level_ = t_level
+  local xy_flags, x_level = M.synth_pulse_flags(self.x_gate_level_,
+      self.x_pulse_pending_)
   if self.x_pulse_pending_ then
     self.x_pulse_pending_ = false
-    xy_flags = GF.RISING + GF.HIGH
     activity = true
   end
+  self.x_gate_level_ = x_level
 
   -- cv_reader.Process -> parameters (marbles.cc:235-240): the engine's
   -- parameters are already the cv_reader's output values (the setters apply
@@ -773,15 +798,30 @@ function Engine:tick_one_()
 
   -- Metro auto-stop: idle when the transport is stopped, no master wrap and
   -- no external pulse for ~2 s (everything downstream is clocked from the
-  -- master, so nothing can change while idle).
+  -- master, so nothing can change while idle). The metro is NOT dropped:
+  -- it re-arms at the slow watchdog interval (kWatchdogIntervalS) whose
+  -- callback only watches clock.running() and revives the 1 ms tick via
+  -- start() when the transport runs again -- a bare metro.stop() here would
+  -- leave clock.internal.start() after an idle period unheard forever.
+  -- A user :stop() remains a full stop.
   if activity or wrapped or self.clock.running() then
     self.idle_ticks_ = 0
   else
     self.idle_ticks_ = self.idle_ticks_ + 1
     if self.idle_ticks_ >= kIdleStopTicks and self.running_ then
       self.running_ = false
-      self.metro.stop()
+      self.metro.start(kWatchdogIntervalS, function() self:watchdog_() end)
     end
+  end
+end
+
+-- Idle watchdog (norns-side): armed by the idle auto-stop at
+-- kWatchdogIntervalS. The 1 ms tick is suspended, not dropped, so the engine
+-- revives itself when the transport starts again. user_stopped_ (a user
+-- :stop(), which fully stops the metro) keeps this from reviving.
+function Engine:watchdog_()
+  if self.clock.running() and not self.user_stopped_ then
+    self:start()
   end
 end
 

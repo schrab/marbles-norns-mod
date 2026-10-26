@@ -297,7 +297,10 @@ function M.test_metro_lifecycle(t)
     if not e:is_running() then stopped = true; break end
   end
   t.assert_true(stopped, "engine auto-stopped while idle")
-  t.assert_true(rec.stops >= 2, "metro stop requested on auto-stop")
+  -- auto-stop re-arms the metro as a slow watchdog instead of dropping it
+  -- (see test_idle_watchdog_revival); it does NOT request a metro stop.
+  t.assert_eq(rec.interval, 0.050, "auto-stop re-arms the metro as a watchdog")
+  t.assert_true(type(rec.cb) == "function", "watchdog callback registered")
 
   -- activity restarts it
   e:clock_pulse()
@@ -330,6 +333,99 @@ function M.test_reseed(t)
   e:tick(1)
   e:reseed_dv()
   e:tick(1)
+end
+
+-- Idle-stop must not drop the metro: it re-arms at a 50 ms watchdog whose
+-- callback revives the 1 ms tick when the transport runs again -- a bare
+-- metro.stop() would leave clock.internal.start() after an idle period
+-- silent forever (the original bug). A user :stop() stays a full stop.
+function M.test_idle_watchdog_revival(t)
+  local clock = fake_clock()
+  clock.set_running(false)
+  local rec = { interval = nil, cb = nil, stopped = 0 }
+  local e = Engine.new({
+    clock = clock,
+    metro = {
+      start = function(interval, cb)
+        rec.interval = interval; rec.cb = cb
+      end,
+      stop = function() rec.stopped = rec.stopped + 1 end,
+    },
+    entropy = function() return 7 end,
+  })
+  e:set_t_rate(0.0)  -- -60 semitones: master never wraps while idle
+  e:start()
+  local watchdog_armed = false
+  for _ = 1, 3000 do
+    rec.cb()  -- the host's job: invoke the recorded metro callback
+    if rec.interval == 0.050 then watchdog_armed = true; break end
+  end
+  t.assert_true(watchdog_armed, "idle-stop re-arms the metro at 50 ms")
+  t.assert_eq(e:is_running(), false, "engine idle-stopped")
+  t.assert_eq(rec.stopped, 0, "idle-stop does not request a metro stop")
+
+  -- the transport starts again: the next watchdog fire revives the 1 ms tick
+  clock.set_running(true)
+  rec.cb()
+  t.assert_eq(e:is_running(), true, "watchdog revives the engine")
+  t.assert_eq(rec.interval, 0.001, "re-armed at the 1 ms tick")
+  local before_ticks = e.tick_count_
+  local before_ramp = e.ramps.master.value
+  for _ = 1, 100 do rec.cb() end
+  t.assert_eq(e.tick_count_ - before_ticks, 100, "engine ticking again")
+  t.assert_true(e.ramps.master.value ~= before_ramp, "master ramp moves again")
+
+  -- a user stop after revival is a full stop and suppresses auto-restart
+  e:stop()
+  t.assert_eq(rec.stopped, 1, "user stop cancels the metro")
+  e:clock_pulse()
+  t.assert_eq(e:is_running(), false, "user stop wins over the watchdog")
+end
+
+-- Synthesized external clock emits a release edge: the tick after a pulse
+-- carries GATE_FLAG_FALLING, which ramp_extractor's pulse-width-based
+-- period predictor consumes (ramp_extractor.cc:291) -- dead code while
+-- pulses emitted a bare RISING|HIGH with no release.
+function M.test_synthesized_clock_falling(t)
+  local stmlib = require('marbles-norns-mod/lib/stmlib')
+  local GF = stmlib.GateFlags
+
+  -- unit: the flag synthesis helper (level held one tick per pulse)
+  local flags, level = Engine.synth_pulse_flags(false, true)
+  t.assert_eq(flags, GF.RISING + GF.HIGH, "pulse tick is RISING|HIGH")
+  t.assert_eq(level, true, "gate level high on the pulse tick")
+  flags, level = Engine.synth_pulse_flags(level, false)
+  t.assert_eq(flags, GF.FALLING, "release tick is FALLING")
+  t.assert_eq(level, false, "gate level low after release")
+  flags = Engine.synth_pulse_flags(level, false)
+  t.assert_eq(flags, GF.LOW, "subsequent ticks stay LOW")
+
+  -- engine-level: spy the t extractor and check the flag stream it receives
+  -- under a 10 Hz synthesized pulse train (100 ticks per pulse).
+  local e = new_engine()
+  e:set_clock_source("external")
+  e:set_t_bias(0.0)
+  e:start()
+  local seen = {}
+  local ex = e.t_generator.ramp_extractor_
+  local real_process = ex.process
+  ex.process = function(self, ratio, arm, reset_ref, flags, ramp)
+    seen[#seen + 1] = flags
+    return real_process(self, ratio, arm, reset_ref, flags, ramp)
+  end
+  for _ = 1, 10 do
+    for _ = 1, 100 do e:tick(1) end
+    e:clock_pulse()
+  end
+  local falling_after_pulse = 0
+  for k = 2, #seen do
+    if seen[k] == GF.FALLING and
+        seen[k - 1] == GF.RISING + GF.HIGH then
+      falling_after_pulse = falling_after_pulse + 1
+    end
+  end
+  t.assert_true(falling_after_pulse >= 5,
+    "FALLING follows each synthesized pulse: " .. falling_after_pulse)
 end
 
 return M

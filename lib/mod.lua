@@ -281,6 +281,10 @@ end
 
 local midi_saved = nil -- { handlers = { [dev] = old_event }, add = old midi.add }
 
+-- While a learn is active midi.add is replaced outright (a device hot-plug
+-- mid-learn must also feed the recorder); it CHAINS to the saved handler
+-- (called after the marbles logic) so a script's own midi.add override
+-- installed before the learn window stays alive.
 local function midi_learn_event(data)
   if not (Marbles and Marbles.is_learning()) then return end
   if type(data) ~= "table" or data[1] == nil or data[2] == nil then return end
@@ -308,6 +312,8 @@ local function attach_midi()
       midi_saved.handlers[dev] = dev.event
       dev.event = midi_learn_event
     end
+    -- chain: a script's own hot-plug handler (the replaced midi.add) still runs
+    if midi_saved.add then midi_saved.add(dev) end
   end
 end
 
@@ -339,6 +345,11 @@ local pre_init = function()
 
   Marbles = event_api.install(engine)
   _G.Marbles = Marbles
+  -- The on_y throttle must run on device WALL time: event_api defaults to
+  -- os.clock(), which is CPU time (process time, not wall time) and does not
+  -- advance while the engine's metro is the only thing running. time_now is
+  -- the util.time-preferring helper above. (Host tests inject their own.)
+  Marbles._y_clock = time_now
 
   dv_length_norm = build_dv_length_norms()
   restore_scales()

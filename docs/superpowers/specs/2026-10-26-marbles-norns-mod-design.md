@@ -35,7 +35,7 @@ Reference behavior: the Marbles manual + "secrets" page (t-generator alternate m
 | X clock jack / self-patch detection | `mrb_x_clock` option: `t1/t2/t3/external`; external = `Marbles.x_clock_pulse()`. Self-patch detection is a hardware normalization trick — replaced by the explicit option. |
 | External processing (SPREAD jack as source) | `mrb_x_register` option (off/on); when on, `Marbles.set_register_value(v)` supplies values (or a script-defined source), BIAS becomes transposition — firmware semantics kept |
 | Y section | `mrb_y_spread/bias/steps/range`, `mrb_y_divider` (1/64 … 1/1 via `y_divider_ratios`) |
-| Scale learning (CV + gate into SPREAD/CLOCK, hold O) | MIDI-learn: arm from the mod menu page (or `Marbles.learn_start(slot)`), play notes on any norns MIDI device, `learn_stop()` finalizes. Port of `note_filter.h` + `scale_recorder.h` fed by MIDI note events instead of CV. |
+| Scale learning (CV + gate into SPREAD/CLOCK, hold O) | MIDI-learn: arm via `Marbles.learn_start(slot)` (the v1 path — the mod intercepts every connected MIDI device while active), play notes, `learn_stop()` finalizes; menu-page arming is a possible later addition. Port of `note_filter.h` + `scale_recorder.h` fed by MIDI note events instead of CV. |
 | Outputs t1/t2/t3 | Gate events + matrix binary sources |
 | Outputs X1–X3 | Value events `{raw, volt, note}` + matrix unipolar sources |
 | Outputs Y1/Y2/Y3 | **One generator** (`kNumCvOutputs = 4`: Y, X1–X3; the panel's three Y jacks are copies of one signal). One event stream + one bipolar matrix source. |
@@ -72,7 +72,10 @@ marbles-norns-mod/                (github.com/schrab/marbles-norns-mod)
   lib/matrix_bridge.lua           guarded matrix integration
   lib/viz_page.lua                SYSTEM>MODS page: gates/X/Y live view, KEY3 reseed
   data/distributions_tables.lua   pre-generated Beta ICDF tables (generated, not hand-edited)
+  data/marbles_tables.lua         lut_logit/lut_raised_cosine parsed verbatim from resources.cc
+                                  (generated; consumed by Markov + the lag processor)
   tools/gen_tables.py             scipy generator replicating resources/lookup_tables.py
+  tools/extract_marbles_tables.py generates data/marbles_tables.lua from the vendored resources.cc
   test/…                          pure-Lua unit tests (host lua5.1)
   test-script/test.lua            toolkit-style norns script for on-device verification
   deploy.sh                       tar → fates:~/dust/code/marbles-norns-mod, enable, restart units

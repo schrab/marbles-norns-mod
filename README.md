@@ -38,8 +38,9 @@ Then: **SYSTEM > MODS > marbles-norns-mod → ENABLE**, restart when prompted
 (and once more after the first enable — mods are scanned at matron start).
 The mod discovers `lib/mod.lua` automatically (standard norns mod layout).
 
-Optional companion: the [matrix mod](https://llllllll.co/t/norns-mod-matrix/)
-— when enabled, the seven `mrb_*` sources appear in its grid (see below).
+Optional companion: the [matrix mod](https://github.com/sixolet/matrix)
+(sixolet/matrix) — when enabled, the seven `mrb_*` sources appear in its grid
+(see below).
 
 ## Script usage
 
@@ -64,7 +65,9 @@ end
 -- transport / inputs
 Marbles.clock_pulse()          -- T clock input tap (external clocking)
 Marbles.x_clock_pulse()        -- X clock input (set mrb_x_clk to "external")
-Marbles.set_register_value(2.5) -- X register mode transposition, in volts
+Marbles.set_register_value(0.5) -- X register input, normalized 0..1
+                                -- (0.5 = 0 V; the engine computes
+                                -- 10*(u-0.5) + transposition volts)
 Marbles.reseed()               -- new entropy for everything
 Marbles.reseed_dv()            -- re-capture the deja vu loops
 ```
@@ -197,14 +200,20 @@ channel follows the same slot for its root, per marbles.cc:375).
 - **Table regeneration**: `python3 tools/gen_tables.py && python3
   tools/gen_tables.py --emit-tests` (replicates
   `marbles/resources/lookup_tables.py` Beta ICDF section; regenerates
-  `data/distributions_tables.lua` + `test/golden_tables.lua`).
+  `data/distributions_tables.lua` + `test/golden_tables.lua`) and
+  `python3 tools/extract_marbles_tables.py` (parses the vendored
+  `resources.cc` float arrays verbatim; generates
+  `data/marbles_tables.lua` — `lut_logit`/`lut_raised_cosine`, consumed by
+  the Markov model and the lag processor).
 - **Tests** (host, no norns needed): `wsl -e lua5.1 test/run.lua` from the
   repo root (WSL wraps Windows Lua 5.1; on Linux plain `lua5.1 test/run.lua`).
   Syntax sweep:
   `for f in lib/*.lua lib/*/*.lua test-script/*.lua; do lua5.1 -e "assert(loadfile('$f'))"; done`.
-- **Deploy**: `./deploy.sh [host]` (default host `fates`) — tar-syncs to
-  `~/dust/code/marbles-norns-mod`, syntax-checks `lib/mod.lua` on-device,
-  restarts `norns-jack norns-sclang norns-main`, prints `active` on success.
+- **Deploy**: `./deploy.sh [host]` (default host `fates`) — syntax-sweeps all
+  shipped Lua host-side (fail-closed, before packing; plain `lua5.1` on
+  Linux, WSL `lua5.1` on Windows), tar-syncs to
+  `~/dust/code/marbles-norns-mod`, restarts
+  `norns-jack norns-sclang norns-main`, prints `active` on success.
   **Restart-units trap**: mods load at matron start — restarting
   `norns.target` alone does NOT cycle the stack; restart the three units
   explicitly (deploy.sh does). Also remember `systemctl enable norns.target`

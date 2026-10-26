@@ -239,8 +239,15 @@ function Quantizer:process(value, amount, hysteresis)
     -- voltages. stl::upper_bound / stl::lower_bound wouldn't work here
     -- because some entries are masked.
     local l = self.level_[level]
+    -- l.last starts at 0 and is only ever assigned a valid degree index, so
+    -- voltage_[l.last] stays in-bounds even when the bitmask is empty
+    -- (quantizer.cc:74-84). l.first, though, remains 0xff when no degree
+    -- clears the threshold: the C++ then reads voltage_[0xff], one past the
+    -- 16-entry array (quantizer.cc:115, undefined but non-fatal). The port
+    -- substitutes 0.0 for that out-of-array read -- quantization onto the
+    -- octave grid -- as documented in output_channel.lua's header.
     local a = self.voltage_[l.last] - self.base_interval_
-    local b = self.voltage_[l.first] + self.base_interval_
+    local b = (self.voltage_[l.first] or 0.0) + self.base_interval_
 
     local bitmask = l.bitmask
     for i = 0, self.num_degrees_ - 1 do

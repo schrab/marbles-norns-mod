@@ -163,14 +163,18 @@ function M.test_output_steps_latch(t)
     ch:process(s, ramp, out)
     segment[i] = out.value
   end
-  -- samples 40..90 sit between wraps (wraps at i = 100k + 1): identical
+  -- samples 40..90 sit between wraps (the first wrap lands at i = 100):
+  -- identical, and equal to the init value 0.0 -- no voltage has been
+  -- generated yet, which is also why the bound below holds. NOT via the
+  -- empty-bitmask fallback: the root-only scale (single degree of weight
+  -- 255) never yields an empty bitmask -- degree 0 clears even the top 255
+  -- threshold -- so quantization always runs the normal a/b search around
+  -- the root voltage (quantizer.cc:113-129); the C++'s voltage_[0xff]
+  -- out-of-array read is never exercised by this scale.
   t.assert_eq(segment[40], segment[90], "quantized voltage latched between wraps")
   t.assert_eq(segment[60], segment[90], "quantized voltage latched between wraps")
-  -- root-only scale, amount 1.0: the bitmask is empty at threshold 255; the
-  -- port falls back to voltage 0 for the C++'s out-of-array read
-  -- (voltage_[0xff], quantizer.cc:114-115) -> octave-boundary remaps only.
   t.assert_true(math.abs(segment[90]) <= 1.0 + 1e-6,
-    "quantized to the octave grid of the empty scale")
+    "latched init voltage (0.0); normal a/b path, no fallback involved")
 end
 
 return M

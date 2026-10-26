@@ -119,4 +119,33 @@ function M.test_no_hysteresis_still_quantizes(t)
   t.assert_true(on_scale, "hysteresis=false still quantizes onto the scale")
 end
 
+function M.test_default_scale_empty_bitmask_fallback(t)
+  -- Empty-bitmask path: with the default scale (one weight-0 degree) amount
+  -- 0.5 maps to level index 2 (threshold 32), which no degree clears --
+  -- bitmask 0, first == 0xff (quantizer.cc:71-85). The C++ then reads
+  -- voltage_[0xff], one past the 16-entry voltage_ array (quantizer.cc:115,
+  -- undefined but non-fatal garbage); the port substitutes 0.0 for that
+  -- out-of-array read, so the result is quantization onto the octave grid:
+  -- 0.0 + an integer number of base_intervals (the policy documented in
+  -- output_channel.lua's header). Fresh quantizer per value: the first call
+  -- has feedback 0, so the expectations are deterministic.
+  local q = Quantizer.new(Quantizer.make_scale())
+  t.assert_eq(q.level_[2].bitmask, 0, "default scale: level 2 bitmask is empty")
+  t.assert_eq(q.level_[2].first, 255, "default scale: level 2 first == 0xff")
+  for _, x in ipairs({ 0.0, 0.37, 0.5, 0.9, 1.7, -0.37, -1.0, -2.4 }) do
+    local fresh = Quantizer.new(Quantizer.make_scale())
+    local v = fresh:process(x, 0.5, true)
+    t.assert_true(type(v) == "number",
+      "process returns a number (no nil arithmetic) for x = " .. x)
+    t.assert_almost_eq(v % 1.0, 0.0, 1e-9,
+      "empty-bitmask level quantizes onto the octave grid (x = " .. x .. ")")
+  end
+  local cases = { [0.37] = 1.0, [1.7] = 2.0, [-0.37] = 0.0, [-2.4] = -2.0 }
+  for x, expected in pairs(cases) do
+    local fresh = Quantizer.new(Quantizer.make_scale())
+    t.assert_almost_eq(fresh:process(x, 0.5, true), expected, 1e-9,
+      "x = " .. x .. " -> " .. expected .. " (0.0 + octave transposition)")
+  end
+end
+
 return M

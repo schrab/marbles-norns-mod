@@ -48,6 +48,10 @@
 --    array (quantizer.cc:114-115, undefined but reachable on hardware when
 --    no scale is loaded and steps > 0.5). The port substitutes 0.0 for that
 --    out-of-array read, i.e. quantization onto the octave grid.
+--  * reacquisition_counter_ counts Process calls -- blocks of kBlockSize = 5
+--    samples in the firmware (io_buffer.h:40). The initial 20 is therefore
+--    20 * 5 = 100 samples at 32 kHz = 3.125 ms -> 3.125 ticks at the port's
+--    1 kHz -> 3, applied as a per-sample counter.
 
 local stmlib = require('marbles-norns-mod/lib/stmlib')
 local distributions = require('marbles-norns-mod/lib/random/distributions')
@@ -56,7 +60,11 @@ local Quantizer = require('marbles-norns-mod/lib/random/quantizer')
 
 local M = {}
 
-local kNumReacquisitions = 20 -- const size_t kNumReacquisitions (.cc:42)
+-- Reacquisition window, converted (see header note): kNumReacquisitions = 20
+-- Process calls = blocks of kBlockSize = 5 samples in the firmware
+-- (.cc:42, io_buffer.h:40), i.e. 100 samples at 32 kHz = 3.125 ms -> 3.125
+-- ticks at the port's 1 kHz -> 3 (integral, like the C++ counter).
+local kNumReacquisitions = 3
 
 -- #define CONSTRAIN(x, a, b) (stmlib/dsp/dsp.h)
 local function constrain(x, a, b)

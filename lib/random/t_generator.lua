@@ -463,8 +463,13 @@ function TGenerator:configure_slave_ramps(v)
         local u = v[3]
         u = u * (u + strength * strength * (1.0 - u))
         u = u * strength
+        -- u reaches exactly 1.0 when the raw draw rounds up to it (f32) and
+        -- strength == 1: the C++ then indexes divider_patterns[17], one past
+        -- the array (t_generator.cc:303-304, OOB UB); the port clamps to the
+        -- last valid pattern, its standing substitution for out-of-array reads.
         pattern = copy_pattern(
-            divider_patterns[integral_part(u * kNumDividerPatterns)])
+            divider_patterns[math.min(integral_part(u * kNumDividerPatterns),
+                                      kNumDividerPatterns - 1)])
         if self.bias_ < 0.5 then
           -- swap(pattern.ratios[i], pattern.ratios[kNumTChannels - 1 - i])
           -- for i in 0 .. kNumTChannels/2 - 1

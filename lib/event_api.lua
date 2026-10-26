@@ -18,8 +18,18 @@
 --                                         array, "y" -> volts, else nil
 --   clock_pulse() / x_clock_pulse()    -- external clock inputs
 --   set_register_value(v) / reseed() / reseed_dv()
---   learn_start(slot) / learn_stop()   -- stubs until Task 16 (scale
---                                         learning); error when called
+--   learn_start(slot) / learn_stop()   -- scale learning (Task 16): slot is
+--                                         the 1-based scale slot 1..6; feed
+--                                         MIDI via learn_note_on(note) /
+--                                         learn_note_off(note) (the mod
+--                                         attaches device listeners); 
+--                                         learn_stop() extracts the recorded
+--                                         histogram (scale_recorder.h),
+--                                         loads it into the engine slot and
+--                                         fires _on_scale_learned(slot0,
+--                                         scale) for persistence. Returns
+--                                         true when a valid scale landed.
+--   is_learning()                      -- true between learn_start/learn_stop
 --   is_running()                       -- engine metro state
 --   Marbles.engine                     -- the engine (mod.lua / viz use)
 --
@@ -40,6 +50,8 @@
 -- delayed gate outputs (the physical gate lines, kGateDelay = 2 ticks deep).
 
 local M = {}
+
+local ScaleRecorder = require('marbles-norns-mod/lib/scale_recorder')
 
 local kYWindowMs = 1000 / 30  -- ~30 Hz throttle window, in stream-ms
 
@@ -124,12 +136,61 @@ function M.install(engine)
   function Marbles.reseed_dv() engine:reseed_dv() end
   function Marbles.is_running() return engine:is_running() end
 
-  -- Registered in Task 16 (note_filter + scale_recorder, MIDI-driven).
-  function Marbles.learn_start(slot)
-    error("marbles: scale learning not loaded", 2)
+  -- Scale learning (Task 16). The recorder is the scale_recorder.h port;
+  -- the firmware feeds it from the note_filter'd note CV (marbles.cc:322-337
+  -- gate semantics: rising -> NewNote, high -> UpdateVoltage, falling ->
+  -- AcceptNote). MIDI notes are already discrete, so the mod maps note_on ->
+  -- learn_note_on (NewNote + one UpdateVoltage) and note_off ->
+  -- learn_note_off (AcceptNote) at (note - 60) / 12 volts (C4 = 0 V); the
+  -- recorder's own tolerance does the rest.
+  Marbles._learn = nil
+
+  function Marbles.is_learning()
+    return Marbles._learn ~= nil
   end
+
+  function Marbles.learn_start(slot)
+    if type(slot) ~= "number" or slot % 1 ~= 0 or slot < 1 or slot > 6 then
+      error("marbles: learn_start needs a scale slot 1..6", 2)
+    end
+    local recorder = ScaleRecorder.new()
+    recorder:init()
+    Marbles._learn = { slot0 = slot - 1, recorder = recorder }
+  end
+
+  function Marbles.learn_note_on(note)
+    local learn = Marbles._learn
+    if not learn then return end
+    local voltage = (note - 60) / 12
+    learn.recorder:new_note(voltage)
+    learn.recorder:update_voltage(voltage)
+  end
+
+  function Marbles.learn_note_off(note)
+    local learn = Marbles._learn
+    if not learn then return end
+    learn.recorder:accept_note()
+  end
+
+  -- Extract + apply. Returns true when a valid scale (>= 2 distinct
+  -- degrees) was recorded; the recorded data is discarded either way.
+  -- Persistence is delegated to _on_scale_learned(slot0, scale) which
+  -- mod.lua installs (Scales.save into ~/dust/data/marbles/scales.lua).
   function Marbles.learn_stop()
-    error("marbles: scale learning not loaded", 2)
+    local learn = Marbles._learn
+    if not learn then return false end
+    Marbles._learn = nil
+    local scale = learn.recorder:scale()
+    if scale then
+      engine:load_scale(learn.slot0, scale)
+      if Marbles._on_scale_learned then
+        local ok, err = pcall(Marbles._on_scale_learned, learn.slot0, scale)
+        if not ok then
+          print("marbles: scale persistence error: " .. tostring(err))
+        end
+      end
+    end
+    return scale ~= nil
   end
 
   return Marbles

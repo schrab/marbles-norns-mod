@@ -27,6 +27,7 @@ local function fake_engine()
     reseed = function() ev.reseeded = true end,
     reseed_dv = function() ev.reseeded_dv = true end,
     is_running = function() return ev.running end,
+    load_scale = function(self, slot, scale) ev.loaded_scale = { slot, scale } end,
     _ev = ev,
     fire = function()
       if ev.gates[1] then ev.gates[1](true, 0.5) end
@@ -113,15 +114,40 @@ function M.test_passthrough(t)
   t.assert_eq(Marbles.is_running(), true, "is_running reflects the engine")
 end
 
--- Scale learning is not wired until Task 16.
-function M.test_learn_stubs_error(t)
-  local Marbles = api.install(fake_engine())
-  local ok1, err1 = pcall(function() Marbles.learn_start(0) end)
-  local ok2, err2 = pcall(function() Marbles.learn_stop() end)
-  t.assert_true(not ok1 and tostring(err1):match("scale learning not loaded") ~= nil,
-    "learn_start errors: " .. tostring(err1))
-  t.assert_true(not ok2 and tostring(err2):match("scale learning not loaded") ~= nil,
-    "learn_stop errors: " .. tostring(err2))
+-- Scale learning (Task 16): the recorder is driven through the API the way
+-- the mod's MIDI listener feeds it (learn_note_on/off), and a successful
+-- learn_stop lands the extracted scale in the engine slot.
+function M.test_learn_wiring(t)
+  local eng = fake_engine()
+  local Marbles = api.install(eng)
+  -- slot validation: 1..6
+  local ok, err = pcall(function() Marbles.learn_start(7) end)
+  t.assert_true(not ok and tostring(err):match("1%.%.6") ~= nil,
+      "learn_start rejects slot 7: " .. tostring(err))
+  t.assert_true(not Marbles.is_learning(), "not learning after rejection")
+
+  Marbles.learn_start(3)
+  t.assert_true(Marbles.is_learning(), "learning after start")
+  -- learn outside a recording is a safe no-op (stray note_offs, double stop)
+  t.assert_true(Marbles.learn_stop() == false, "learn_stop with no data -> false")
+
+  Marbles.learn_start(3) -- 1-based slot 3 -> engine slot 2
+  for round = 1, 8 do
+    for _, n in ipairs({ 0, 4, 7 }) do
+      Marbles.learn_note_on(60 + n)
+      Marbles.learn_note_off(60 + n)
+    end
+  end
+  -- persistence hook (mod.lua installs it on the device)
+  local persisted = nil
+  Marbles._on_scale_learned = function(slot0, scale) persisted = { slot0, scale } end
+  t.assert_true(Marbles.learn_stop() == true, "learn_stop -> true")
+  t.assert_true(not Marbles.is_learning(), "learning cleared")
+  t.assert_true(persisted ~= nil and persisted[1] == 2, "persist hook got slot0 2")
+  t.assert_true(persisted[2].num_degrees == 3, "persist hook got 3-degree scale")
+  t.assert_true(eng._ev.loaded_scale ~= nil
+      and eng._ev.loaded_scale[1] == 2 and eng._ev.loaded_scale[2] == persisted[2],
+      "engine load_scale(2, scale) called with the extracted scale")
 end
 
 -- Integration: a real Engine behind the API (bridge signatures, get(), and

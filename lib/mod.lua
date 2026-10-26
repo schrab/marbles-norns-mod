@@ -10,6 +10,12 @@
 --                         registers the mod-matrix bridge and the mrb_* params
 --   * script_post_cleanup -- stops the engine and unsets the global
 --
+-- Scale learning: Marbles.learn_start(slot) / learn_stop() (1-based slot)
+-- intercept every connected MIDI device while active; note_on/note_off feed
+-- the scale_recorder port at (note - 60) / 12 V, and learn_stop loads the
+-- extracted scale into the engine slot and persists all slots to
+-- ~/dust/data/marbles/scales.lua.
+--
 -- Requires the 'core/mods' module surface at load time only. On the device
 -- the matrix mod (matrix/lib/matrix) is optional: when present, params are
 -- added through matrix:add_post_init_hook (the toolkit convention, so matrix
@@ -261,6 +267,58 @@ local function persist_scale(slot0, scale)
 end
 
 -- ---------------------------------------------------------------------------
+-- MIDI scale learning (Task 16): while a learn is active, every connected
+-- MIDI device's event handler is intercepted (and restored on stop), per the
+-- norns midi.add / dev.event pattern. note_on -> NewNote + UpdateVoltage,
+-- note_off (or note_on with velocity 0) -> AcceptNote -- the gate semantics
+-- of marbles.cc:322-337; voltage = (note - 60) / 12 (C4 = 0 V). Byte math
+-- uses arithmetic (no 5.3 bitwise ops) so the file stays lua5.1-loadable.
+-- ---------------------------------------------------------------------------
+
+local midi_saved = nil -- { handlers = { [dev] = old_event }, add = old midi.add }
+
+local function midi_learn_event(data)
+  if not (Marbles and Marbles.is_learning()) then return end
+  if type(data) ~= "table" or data[1] == nil or data[2] == nil then return end
+  local high = math.floor(data[1] / 16)
+  local note = data[2]
+  local velocity = data[3] or 0
+  if high == 9 and velocity > 0 then
+    Marbles.learn_note_on(note)
+  elseif high == 8 or high == 9 then
+    Marbles.learn_note_off(note)
+  end
+end
+
+local function attach_midi()
+  if midi_saved or not (midi and midi.devices) then return end
+  midi_saved = { handlers = {}, add = midi.add }
+  for _, dev in pairs(midi.devices) do
+    if type(dev) == "table" then
+      midi_saved.handlers[dev] = dev.event
+      dev.event = midi_learn_event
+    end
+  end
+  midi.add = function(dev)
+    if type(dev) == "table" then
+      midi_saved.handlers[dev] = dev.event
+      dev.event = midi_learn_event
+    end
+  end
+end
+
+local function detach_midi()
+  if not midi_saved then return end
+  for dev, old in pairs(midi_saved.handlers) do
+    if dev.event == midi_learn_event then
+      dev.event = old
+    end
+  end
+  midi.add = midi_saved.add
+  midi_saved = nil
+end
+
+-- ---------------------------------------------------------------------------
 -- hooks
 -- ---------------------------------------------------------------------------
 
@@ -298,10 +356,25 @@ local pre_init = function()
   -- auto-restarts on activity (see lib/engine.lua).
   engine:start()
 
-  -- Task 16/17 add MIDI-learn wiring and the menu page from here.
+  -- scale learning: persistence + the MIDI device listeners (learn_start /
+  -- learn_stop get wrapped so scripts just call Marbles.learn_start(slot)).
+  Marbles._on_scale_learned = function(slot0, scale) persist_scale(slot0, scale) end
+  local api_learn_start = Marbles.learn_start
+  local api_learn_stop = Marbles.learn_stop
+  Marbles.learn_start = function(slot)
+    api_learn_start(slot)
+    attach_midi()
+  end
+  Marbles.learn_stop = function()
+    detach_midi()
+    api_learn_stop()
+  end
+
+  -- Task 17 registers the mod menu page from here.
 end
 
 local post_cleanup = function()
+  detach_midi()
   if engine then
     engine:stop()
     engine = nil

@@ -4,11 +4,11 @@
 local M = {}
 local vp = require('marbles-norns-mod/lib/viz_page')
 
--- screen stub (the brief's list) recording primitive draw calls
+-- screen stub (the brief's list) recording primitive draw calls with coords
 local draws = {}
 _G.screen = {
-  move = function() end,
-  line = function() draws[#draws + 1] = "line" end,
+  move = function(x, y) draws[#draws + 1] = "move:" .. tostring(x) .. "," .. tostring(y) end,
+  line = function(x, y) draws[#draws + 1] = "line:" .. tostring(x) .. "," .. tostring(y) end,
   stroke = function() end,
   rect = function() draws[#draws + 1] = "rect" end,
   fill = function() draws[#draws + 1] = "fill" end,
@@ -85,6 +85,22 @@ function M.test_refresh_timer_lifecycle(t)
   page.deinit()
   t.assert_eq(stopped, 1, "deinit stops the timer")
   _G._menu = saved_menu
+end
+
+function M.test_y_scope_scrolls_right_aligned(t)
+  local engine = { out = { t1 = false, t2 = false, t3 = false,
+                          x = { {}, {}, {} }, y_volt = 0 },
+                   reseed_dv = function() end }
+  local page = vp.new(function() return engine end)
+  page._push_y(5.0) -- +5 V clamps to y=34; must leave the ring entirely
+  for i = 1, 200 do page._push_y(0.0) end
+  draws = {}
+  page:redraw()
+  local joined = table.concat(draws, ";")
+  t.assert_true(joined:find("move:0,48", 1, true) ~= nil,
+      "scope starts at the oldest retained sample (0 V), right-aligned")
+  t.assert_true(joined:find("move:0,34", 1, true) == nil,
+      "dropped oldest sample is not compressed into the left edge")
 end
 
 return M

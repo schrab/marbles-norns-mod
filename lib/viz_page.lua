@@ -17,8 +17,9 @@
 -- Layout (128x64):
 --   y 1..23   left: t1/t2/t3 gate lanes (6 px, filled block while high);
 --             right: X1..X3 vertical bars, note name under each bar
---   y 30..64  Y out scope (voltages from _push_y, +/-5 V full strip;
---             faint +5 V ceiling line, brighter 0 V midline reference)
+--   y 30..64  Y out scope (scrolling strip chart: newest at x=127, 1 px per
+--             sample, slides left as new Y values arrive; faint +5 V ceiling
+--             line, brighter 0 V midline reference)
 -- Missing engine: an "enable + load a script" hint instead of everything.
 
 local M = {}
@@ -143,13 +144,18 @@ function M.new(engine_ref_fn)
     scr.move(1, 44)
     scr.text("y")
     local h = page._y_history
-    if #h > 1 then
+    local n = #h
+    if n > 1 then
       scr.level(15)
-      for i = 1, #h do
-        local x = (i - 1) * 127 / (#h - 1)
+      -- scrolling strip chart, not a compressing overview: newest sample at
+      -- x=127, one pixel per sample, trace grows leftward from the right
+      -- edge until the ring fills, then slides left as new samples arrive
+      local first = math.max(1, n - 127)
+      for i = first, n do
+        local x = 127 - (n - i)
         local y = kYMid - h[i] * kYPxPerVolt
         if y < 34 then y = 34 elseif y > 63 then y = 63 end
-        if i == 1 then
+        if i == first then
           scr.move(x, y)
         else
           scr.line(x, y)

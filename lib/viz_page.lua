@@ -112,11 +112,9 @@ function M.new(engine_ref_fn)
     for i = 1, 3 do
       local payload = out.x and out.x[i]
       local x = 69 + (i - 1) * 19
-      local h = 0
-      if payload then
-        h = (payload.volt + 5) / 10 * kBarMaxHeight
-        if h < 0 then h = 0 elseif h > kBarMaxHeight then h = kBarMaxHeight end
-      end
+      local volt = (payload and payload.volt) or 0
+      local h = (volt + 5) / 10 * kBarMaxHeight
+      if h < 0 then h = 0 elseif h > kBarMaxHeight then h = kBarMaxHeight end
       scr.level(6)
       scr.rect(x, kBarBaseline - kBarMaxHeight, 14, kBarMaxHeight)
       scr.stroke()

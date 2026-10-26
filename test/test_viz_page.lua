@@ -89,7 +89,10 @@ end
 
 function M.test_y_scope_scrolls_right_aligned(t)
   local engine = { out = { t1 = false, t2 = false, t3 = false,
-                          x = { {}, {}, {} }, y_volt = 0 },
+                          x = { [1] = { raw = 0, volt = 0, note = nil },
+                                [2] = { raw = 0, volt = 0, note = nil },
+                                [3] = { raw = 0, volt = 0, note = nil } },
+                          y_volt = 0 },
                    reseed_dv = function() end }
   local page = vp.new(function() return engine end)
   page._push_y(5.0) -- +5 V clamps to y=34; must leave the ring entirely

@@ -22,7 +22,8 @@
 -- can hang depth params off them) and the mrb_* sources appear in the matrix
 -- menu; when absent, params are added directly in pre_init.
 --
--- The mod's menu page (viz) is registered by lib/viz_page.lua (Task 17).
+-- The mod's menu page (viz) lives in lib/viz_page.lua and is registered in
+-- pre_init as "marbles-norns-mod".
 
 local mod = require 'core/mods'
 
@@ -31,6 +32,7 @@ local engine = nil
 local Marbles = nil
 local matrix = nil -- matrix mod singleton when present
 local scale_slots = nil -- persistent scales, 0-based keys 0..5
+local viz = nil -- menu page (lib/viz_page.lua)
 
 -- ---------------------------------------------------------------------------
 -- platform adapters (guarded so a missing norns global degrades to a stub)
@@ -370,7 +372,13 @@ local pre_init = function()
     api_learn_stop()
   end
 
-  -- Task 17 registers the mod menu page from here.
+  -- menu viz page (Task 17): feeds from engine.out + the throttled on_y
+  local viz_page = require('marbles-norns-mod/lib/viz_page')
+  viz = viz_page.new(function() return engine end)
+  Marbles.on_y(function(volt) viz._push_y(volt) end)
+  if mod.menu and mod.menu.register then
+    mod.menu.register("marbles-norns-mod", viz)
+  end
 end
 
 local post_cleanup = function()
@@ -384,6 +392,7 @@ local post_cleanup = function()
   matrix = nil
   dv_length_norm = nil
   scale_slots = nil
+  viz = nil
 end
 
 mod.hook.register("script_pre_init", "marbles pre init", pre_init)

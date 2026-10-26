@@ -139,7 +139,7 @@ local dv_length_norm = nil -- built lazily in pre_init (needs lib/engine)
 
 local function set_action(fn)
   -- norns does not run param actions on script load (values restore
--- silently), so the engine keeps its firmware defaults until the user
+  -- silently), so the engine keeps its firmware defaults until the user
   -- touches a knob; the guard also keeps actions harmless on the host shim.
   return function(v)
     if engine then fn(v) end
